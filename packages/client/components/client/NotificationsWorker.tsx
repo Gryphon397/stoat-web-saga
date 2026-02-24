@@ -16,6 +16,7 @@ import { useNavigate, useSmartParams } from "@revolt/routing";
 import { useState } from "@revolt/state";
 
 import { useClient } from ".";
+import { voiceNotifications } from "../rtc/VoiceNotifications";
 
 /**
  * Process and display desktop notifications
@@ -157,7 +158,7 @@ export function NotificationsWorker() {
       body = t`Sent ${message.attachments!.length} attachments`;
     }
 
-    // todo: play sound
+    voiceNotifications.playMessageReceived();
 
     // Don't continue if we don't have notification permissions
     if (Notification.permission !== "granted") return;

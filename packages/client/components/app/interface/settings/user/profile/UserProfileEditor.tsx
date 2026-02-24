@@ -137,13 +137,9 @@ export function UserProfileEditor(props: Props) {
 
     await props.user.edit(changes);
 
-    if (editGroup.controls.banner.isDirty && profile.data) {
-      queryClient.setQueryData(["profile", props.user.id], {
-        ...profile.data,
-        animatedBannerURL: newBannerUrl,
-        bannerURL: newBannerUrl,
-      });
-    }
+    await queryClient.invalidateQueries({
+      queryKey: ["profile", props.user.id],
+    });
   }
 
   const submit = Form2.useSubmitHandler(editGroup, onSubmit, onReset);

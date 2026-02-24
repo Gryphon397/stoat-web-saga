@@ -15,10 +15,28 @@ export interface TypeVoice {
 
   userVolumes: Record<string, number>;
   userMutes: Record<string, boolean>;
+
+  pushToTalkEnabled: boolean;
+  pushToTalkKeybind: string;
+  pushToTalkMode: "hold" | "toggle";
+  pushToTalkReleaseDelay: number;
+  pushToTalkNotificationSounds: boolean;
+
+  notificationSoundsEnabled: boolean;
+  notificationVolume: number;
+  
+  // Individual sound toggles
+  soundJoinCall: boolean;
+  soundLeaveCall: boolean;
+  soundSomeoneJoined: boolean;
+  soundSomeoneLeft: boolean;
+  soundMute: boolean;
+  soundUnmute: boolean;
+  soundReceiveMessage: boolean;
 }
 
 /**
- * Handles enabling and disabling client experiments.
+ * Voice settings store
  */
 export class Voice extends AbstractStore<"voice", TypeVoice> {
   /**
@@ -48,6 +66,20 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       outputVolume: 1.0,
       userVolumes: {},
       userMutes: {},
+      pushToTalkEnabled: false,
+      pushToTalkKeybind: "V",
+      pushToTalkMode: "hold",
+      pushToTalkReleaseDelay: 250,
+      pushToTalkNotificationSounds: false,
+      notificationSoundsEnabled: true,
+      notificationVolume: 0.3,
+      soundJoinCall: true,
+      soundLeaveCall: true,
+      soundSomeoneJoined: true,
+      soundSomeoneLeft: true,
+      soundMute: true,
+      soundUnmute: true,
+      soundReceiveMessage: true,
     };
   }
 
@@ -100,6 +132,64 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
           ([userId, muted]) => typeof userId === "string" && muted === true,
         )
         .forEach(([k, v]) => (data.userMutes[k] = v));
+    }
+
+    // push to talk settings
+    if (typeof input.pushToTalkEnabled === "boolean") {
+      data.pushToTalkEnabled = input.pushToTalkEnabled;
+    }
+
+    if (typeof input.pushToTalkKeybind === "string") {
+      data.pushToTalkKeybind = input.pushToTalkKeybind;
+    }
+
+    if (input.pushToTalkMode === "hold" || input.pushToTalkMode === "toggle") {
+      data.pushToTalkMode = input.pushToTalkMode;
+    }
+
+    if (
+      typeof input.pushToTalkReleaseDelay === "number" &&
+      input.pushToTalkReleaseDelay >= 0 &&
+      input.pushToTalkReleaseDelay <= 5000
+    ) {
+      data.pushToTalkReleaseDelay = input.pushToTalkReleaseDelay;
+    }
+
+    if (typeof input.pushToTalkNotificationSounds === "boolean") {
+      data.pushToTalkNotificationSounds = input.pushToTalkNotificationSounds;
+    }
+
+
+    // notification settings
+    if (typeof input.notificationSoundsEnabled === "boolean") {
+      data.notificationSoundsEnabled = input.notificationSoundsEnabled;
+    }
+
+    if (typeof input.notificationVolume === "number") {
+      data.notificationVolume = Math.max(0, Math.min(1, input.notificationVolume));
+    }
+
+    // individual sound toggles
+    if (typeof input.soundJoinCall === "boolean") {
+      data.soundJoinCall = input.soundJoinCall;
+    }
+    if (typeof input.soundLeaveCall === "boolean") {
+      data.soundLeaveCall = input.soundLeaveCall;
+    }
+    if (typeof input.soundSomeoneJoined === "boolean") {
+      data.soundSomeoneJoined = input.soundSomeoneJoined;
+    }
+    if (typeof input.soundSomeoneLeft === "boolean") {
+      data.soundSomeoneLeft = input.soundSomeoneLeft;
+    }
+    if (typeof input.soundMute === "boolean") {
+      data.soundMute = input.soundMute;
+    }
+    if (typeof input.soundUnmute === "boolean") {
+      data.soundUnmute = input.soundUnmute;
+    }
+    if (typeof input.soundReceiveMessage === "boolean") {
+      data.soundReceiveMessage = input.soundReceiveMessage;
     }
 
     return data;
@@ -238,5 +328,231 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    */
   get outputVolume(): number {
     return this.get().outputVolume;
+  }
+
+  /**
+   * Set push to talk enabled
+   */
+  set pushToTalkEnabled(value: boolean) {
+    this.set("pushToTalkEnabled", value);
+  }
+
+  /**
+   * Get push to talk enabled
+   */
+  get pushToTalkEnabled(): boolean {
+    return this.get().pushToTalkEnabled;
+  }
+
+  /**
+   * Set push to talk keybind
+   */
+  set pushToTalkKeybind(value: string) {
+    this.set("pushToTalkKeybind", value);
+  }
+
+  /**
+   * Get push to talk keybind
+   */
+  get pushToTalkKeybind(): string {
+    return this.get().pushToTalkKeybind;
+  }
+
+  /**
+   * Set push to talk mode
+   */
+  set pushToTalkMode(value: "hold" | "toggle") {
+    this.set("pushToTalkMode", value);
+  }
+
+  /**
+   * Get push to talk mode
+   */
+  get pushToTalkMode(): "hold" | "toggle" {
+    return this.get().pushToTalkMode;
+  }
+
+  /**
+   * Set push to talk release delay
+   */
+  set pushToTalkReleaseDelay(value: number) {
+    this.set("pushToTalkReleaseDelay", value);
+  }
+
+  /**
+   * Get push to talk release delay
+   */
+  get pushToTalkReleaseDelay(): number {
+    return this.get().pushToTalkReleaseDelay;
+  }
+
+  /**
+   * Get push to talk notification sounds
+   */
+  get pushToTalkNotificationSounds(): boolean {
+    return this.get().pushToTalkNotificationSounds;
+  }
+
+  /**
+   * Set push to talk notification sounds
+   */
+  set pushToTalkNotificationSounds(value: boolean) {
+    this.set("pushToTalkNotificationSounds", value);
+  }
+
+  /**
+   * Set all push to talk config at once (from external source like desktop app)
+   */
+  setPushToTalkConfig(config: {
+    enabled?: boolean;
+    keybind?: string;
+    mode?: "hold" | "toggle";
+    releaseDelay?: number;
+    notificationSounds?: boolean;
+  }) {
+    if (import.meta.env.DEV) {
+      console.log("[Voice] Setting PTT config from external source:", config);
+    }
+    if (typeof config.enabled === "boolean") {
+      this.set("pushToTalkEnabled", config.enabled);
+    }
+    if (typeof config.keybind === "string") {
+      this.set("pushToTalkKeybind", config.keybind);
+    }
+    if (config.mode === "hold" || config.mode === "toggle") {
+      this.set("pushToTalkMode", config.mode);
+    }
+    if (typeof config.releaseDelay === "number") {
+      this.set("pushToTalkReleaseDelay", config.releaseDelay);
+    }
+    if (typeof config.notificationSounds === "boolean") {
+      this.set("pushToTalkNotificationSounds", config.notificationSounds);
+    }
+  }
+
+  /**
+   * Get notification sounds enabled
+   */
+  get notificationSoundsEnabled(): boolean {
+    return this.get().notificationSoundsEnabled;
+  }
+
+  /**
+   * Set notification sounds enabled
+   */
+  set notificationSoundsEnabled(value: boolean) {
+    this.set("notificationSoundsEnabled", value);
+  }
+
+  /**
+   * Get notification volume
+   */
+  get notificationVolume(): number {
+    return this.get().notificationVolume;
+  }
+
+  /**
+   * Set notification volume
+   */
+  set notificationVolume(value: number) {
+    this.set("notificationVolume", value);
+  }
+
+  /**
+   * Get sound: join call
+   */
+  get soundJoinCall(): boolean {
+    return this.get().soundJoinCall;
+  }
+
+  /**
+   * Set sound: join call
+   */
+  set soundJoinCall(value: boolean) {
+    this.set("soundJoinCall", value);
+  }
+
+  /**
+   * Get sound: leave call
+   */
+  get soundLeaveCall(): boolean {
+    return this.get().soundLeaveCall;
+  }
+
+  /**
+   * Set sound: leave call
+   */
+  set soundLeaveCall(value: boolean) {
+    this.set("soundLeaveCall", value);
+  }
+
+  /**
+   * Get sound: someone joined
+   */
+  get soundSomeoneJoined(): boolean {
+    return this.get().soundSomeoneJoined;
+  }
+
+  /**
+   * Set sound: someone joined
+   */
+  set soundSomeoneJoined(value: boolean) {
+    this.set("soundSomeoneJoined", value);
+  }
+
+  /**
+   * Get sound: someone left
+   */
+  get soundSomeoneLeft(): boolean {
+    return this.get().soundSomeoneLeft;
+  }
+
+  /**
+   * Set sound: someone left
+   */
+  set soundSomeoneLeft(value: boolean) {
+    this.set("soundSomeoneLeft", value);
+  }
+
+  /**
+   * Get sound: mute
+   */
+  get soundMute(): boolean {
+    return this.get().soundMute;
+  }
+
+  /**
+   * Set sound: mute
+   */
+  set soundMute(value: boolean) {
+    this.set("soundMute", value);
+  }
+
+  /**
+   * Get sound: unmute
+   */
+  get soundUnmute(): boolean {
+    return this.get().soundUnmute;
+  }
+
+  /**
+   * Set sound: unmute
+   */
+  set soundUnmute(value: boolean) {
+    this.set("soundUnmute", value);
+  }
+
+  /**
+   * Get sound: receive message
+   */
+  get soundReceiveMessage(): boolean {
+    return this.get().soundReceiveMessage;
+  }
+
+  /**
+   * Set sound: receive message
+   */
+  set soundReceiveMessage(value: boolean) {
+    this.set("soundReceiveMessage", value);
   }
 }

@@ -36,6 +36,7 @@ export { Checkbox } from "./Checkbox";
 export { DataTable } from "./DataTable";
 export { type DialogProps, Dialog } from "./Dialog";
 export { IconButton } from "./IconButton";
+export { KeybindInput } from "./KeybindInput";
 export { List } from "./List";
 export { CircularProgress } from "./LoadingProgress";
 export { MenuItem } from "./Menu";

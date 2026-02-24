@@ -945,6 +945,11 @@ msgstr "Deafen Members"
 msgid "Default"
 msgstr "Default"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.defaultHold"
+msgstr "Default is Hold mode"
+
 #: components/app/interface/settings/ServerSettings.tsx
 #: components/app/interface/settings/ChannelSettings.tsx
 #: components/app/interface/settings/server/roles/ServerRoleOverview.tsx
@@ -1189,6 +1194,21 @@ msgstr "Enable authenticator app"
 #: components/app/interface/settings/user/Notifications.tsx
 msgid "Enable Desktop Notifications"
 msgstr "Enable Desktop Notifications"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.enable"
+msgstr "Enable Notification Sounds"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.enable"
+msgstr "Enable Push to Talk"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.toggleMode"
+msgstr "Enable Toggle Mode"
 
 #: components/app/interface/settings/user/appearance/AppearanceMenu.tsx
 msgid "Enable transparency glass/blur effects (slow on older machines)"
@@ -1441,6 +1461,11 @@ msgstr "Image by @fakurian"
 msgid "Impersonation"
 msgstr "Impersonation"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.individual"
+msgstr "Individual Sounds"
+
 #: components/app/interface/settings/user/Native.tsx
 msgid "Instead of closing, Stoat will hide in your tray."
 msgstr "Instead of closing, Stoat will hide in your tray."
@@ -1503,6 +1528,11 @@ msgstr "Join a server"
 #: src/interface/channels/ChannelHeader.tsx
 #~ msgid "Join call"
 #~ msgstr "Join call"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.joinCall"
+msgstr "Join Call"
 
 #: src/interface/Home.tsx
 #: components/app/interface/settings/user/Feedback.tsx
@@ -1582,6 +1612,11 @@ msgstr "Leave"
 #: components/modal/modals/DeleteChannel.tsx
 msgid "Leave {0}?"
 msgstr "Leave {0}?"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.leaveCall"
+msgstr "Leave Call"
 
 #: components/app/menus/ChannelContextMenu.tsx
 msgid "Leave group"
@@ -1700,6 +1735,11 @@ msgstr "Mark this channel as mature?"
 msgid "Masquerade"
 msgstr "Masquerade"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.volume"
+msgstr "Master Volume"
+
 #: components/app/interface/settings/ServerSettings.tsx
 #: components/app/interface/settings/channel/permissions/ChannelPermissionsEditor.tsx
 msgid "Members"
@@ -1783,6 +1823,11 @@ msgstr "Minimise to Tray"
 msgid "Missing permission"
 msgstr "Missing permission"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.mode"
+msgstr "Mode"
+
 #: components/app/interface/settings/user/appearance/AppearanceMenu.tsx
 msgid "Monochrome"
 msgstr "Monochrome"
@@ -1810,6 +1855,11 @@ msgstr "Multi-factor authentication is already enabled for this account."
 
 #: components/app/menus/UserContextMenu.tsx
 msgid "Mute"
+msgstr "Mute"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.mute"
 msgstr "Mute"
 
 #: components/app/menus/shared/NotificationContextMenu.tsx
@@ -1911,6 +1961,21 @@ msgstr "Normal"
 #: components/modal/modals/ReportContent.tsx
 msgid "Not of minimum age to use the platform"
 msgstr "Not of minimum age to use the platform"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/UserSettings.tsx
+msgid "notifications.tab.title"
+msgstr "Notification Sounds"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.notifications"
+msgstr "Notification Sounds"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.title"
+msgstr "Notification Sounds"
 
 #: components/app/menus/ServerContextMenu.tsx
 #: components/app/menus/shared/NotificationContextMenu.tsx
@@ -2043,6 +2108,16 @@ msgstr "Pin message"
 msgid "Platform Moderator"
 msgstr "Platform Moderator"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.playMuteSounds"
+msgstr "Play Mute/Unmute Sounds"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.muteSoundsDescription"
+msgstr "Play sounds when muting/unmuting with Push to Talk"
+
 #: components/modal/modals/MFAFlow.tsx
 msgid "Please confirm this action using the selected method."
 msgstr "Please confirm this action using the selected method."
@@ -2095,6 +2170,21 @@ msgstr "Promotes harm"
 msgid "Provided email or password is wrong."
 msgstr "Provided email or password is wrong."
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/UserSettings.tsx
+msgid "ptt.tab.title"
+msgstr "Push to Talk"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.title"
+msgstr "Push to Talk"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.keybind"
+msgstr "Push to Talk Keybind"
+
 #: components/modal/modals/ReportContent.tsx
 msgid "Raid or spam attack"
 msgstr "Raid or spam attack"
@@ -2129,6 +2219,11 @@ msgstr "Read past messages sent in channels"
 msgid "Reason"
 msgstr "Reason"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.receiveMessage"
+msgstr "Receive Message"
+
 #: components/app/interface/settings/user/Notifications.tsx
 msgid "Receive notifications while the app is open and in the background."
 msgstr "Receive notifications while the app is open and in the background."
@@ -2161,6 +2256,11 @@ msgstr "Registered since <0/>"
 #: components/app/menus/UserContextMenu.tsx
 msgid "Reject friend request"
 msgstr "Reject friend request"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/PushToTalkSettings.tsx
+msgid "ptt.settings.releaseDelay"
+msgstr "Release Delay"
 
 #: src/interface/channels/text/TextSearchSidebar.tsx
 msgid "Relevance"
@@ -2496,6 +2596,16 @@ msgstr "Sign Up"
 msgid "Silent"
 msgstr "Silent"
 
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.someoneJoined"
+msgstr "Someone Joined"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.someoneLeft"
+msgstr "Someone Left"
+
 #: components/modal/modals/EditEmail.tsx
 msgid "someone@example.com"
 msgstr "someone@example.com"
@@ -2788,6 +2898,11 @@ msgstr "Unmark as Mature"
 #: components/modal/modals/ChannelToggleMature.tsx
 msgid "Unmark this channel as mature?"
 msgstr "Unmark this channel as mature?"
+
+#. js-lingui-explicit-id
+#: components/app/interface/settings/user/voice/NotificationSoundsSettings.tsx
+msgid "notifications.sounds.unmute"
+msgstr "Unmute"
 
 #: components/app/menus/shared/NotificationContextMenu.tsx
 msgid "Unmute Channel"

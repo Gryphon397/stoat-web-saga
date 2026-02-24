@@ -7,6 +7,37 @@ import type { Channel, Client, ServerMember, ServerRole, User } from "stoat.js";
 declare global {
   interface Window {
     __TAURI__: object;
+    pushToTalk?: {
+      onStateChange: (callback: (state: { active: boolean }) => void) => void;
+      offStateChange: (callback: (state: { active: boolean }) => void) => void;
+      setManualState: (active: boolean) => void;
+      getCurrentState: () => { active: boolean };
+      isAvailable: () => boolean;
+      updateSettings: (settings: {
+        enabled?: boolean;
+        keybind?: string;
+        mode?: "hold" | "toggle";
+        releaseDelay?: number;
+      }) => void;
+      getConfig: () => {
+        enabled: boolean;
+        keybind: string;
+        mode: "hold" | "toggle";
+        releaseDelay: number;
+      };
+      onConfigChange: (callback: (config: {
+        enabled: boolean;
+        keybind: string;
+        mode: "hold" | "toggle";
+        releaseDelay: number;
+      }) => void) => void;
+      offConfigChange: (callback: (config: {
+        enabled: boolean;
+        keybind: string;
+        mode: "hold" | "toggle";
+        releaseDelay: number;
+      }) => void) => void;
+    };
   }
 }
 
