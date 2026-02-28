@@ -320,6 +320,7 @@ class Voice {
     if (!room) throw "invalid state";
     await room.localParticipant.setScreenShareEnabled(
       !room.localParticipant.isScreenShareEnabled,
+      { audio: true},
     );
 
     this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
