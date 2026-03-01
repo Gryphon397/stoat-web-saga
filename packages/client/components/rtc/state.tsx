@@ -2,6 +2,7 @@ import {
   Accessor,
   JSX,
   Setter,
+  Show,
   batch,
   createContext,
   createEffect,
@@ -21,6 +22,21 @@ const debugLog = (prefix: string, ...args: unknown[]) => {
     console.log(`[${prefix}]`, ...args);
   }
 };
+
+// Type declarations for Stoat Desktop screenshare picker API
+declare global {
+  interface Window {
+    desktopCapture?: {
+      onSourcesAvailable: (
+        callback: (
+          sources: Array<{ id: string; name: string; thumbnail: string }>,
+        ) => void,
+      ) => void;
+      selectSource: (id: string) => void;
+      cancel: () => void;
+    };
+  }
+}
 
 // Type declarations for Stoat Desktop push-to-talk API
 declare global {
@@ -68,6 +84,7 @@ import { VoiceCallCardContext } from "@revolt/ui/components/features/voice/callC
 
 import { InRoom } from "./components/InRoom";
 import { RoomAudioManager } from "./components/RoomAudioManager";
+import { ScreenSharePicker } from "./components/ScreenSharePicker";
 
 type State =
   | "READY"
@@ -349,7 +366,16 @@ export function VoiceContext(props: { children: JSX.Element }) {
   const voice = new Voice(state.voice);
   const client = useClient();
 
+  const [pickSources, setPickSources] = createSignal<
+    Array<{ id: string; name: string; thumbnail: string }>
+  >([]);
+
   onMount(() => {
+    if (typeof window !== "undefined" && window.desktopCapture) {
+      window.desktopCapture.onSourcesAvailable((sources) => {
+        setPickSources(sources);
+      });
+    }
     debugLog("PTT-WEB", "VoiceContext mounted, checking for desktop PTT API...");
     debugLog("PTT-WEB", "window.pushToTalk exists:", typeof window !== "undefined" && !!window.pushToTalk);
     
@@ -498,6 +524,19 @@ export function VoiceContext(props: { children: JSX.Element }) {
         <InRoom>
           <RoomAudioManager />
         </InRoom>
+        <Show when={pickSources().length > 0}>
+          <ScreenSharePicker
+            sources={pickSources()}
+            onSelect={(id) => {
+              window.desktopCapture!.selectSource(id);
+              setPickSources([]);
+            }}
+            onCancel={() => {
+              window.desktopCapture!.cancel();
+              setPickSources([]);
+            }}
+          />
+        </Show>
       </RoomContext.Provider>
     </voiceContext.Provider>
   );
