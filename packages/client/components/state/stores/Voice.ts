@@ -257,7 +257,7 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    * @returns Volume or default
    */
   getScreenshareVolume(userId: string): number {
-    return this.get().screenshareVolumes[userId] ?? 1.0;
+    return this.get().screenshareVolumes[userId] ?? 1.5;
   }
 
   /**

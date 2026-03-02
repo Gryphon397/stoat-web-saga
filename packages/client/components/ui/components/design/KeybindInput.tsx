@@ -121,10 +121,8 @@ export function KeybindInput(props: Props) {
     }
 
     if (keys.length === 0) {
-      if (modifierKeys.includes(e.key)) {
-        keys.push(e.key);
-      }
-      return;
+      // Modifier pressed alone — bind it as the key itself
+      keys.push(e.key);
     }
 
     const keybind = keys.join("+");
