@@ -55,7 +55,9 @@ export function RoomAudioManager() {
                 : state.voice.getUserVolume(track().participant.identity))
             }
             muted={
-              state.voice.getUserMuted(track().participant.identity) ||
+              (track().publication.source === Track.Source.ScreenShareAudio
+                ? state.voice.getScreenshareMuted(track().participant.identity)
+                : state.voice.getUserMuted(track().participant.identity)) ||
               voice.deafen()
             }
             enableBoosting

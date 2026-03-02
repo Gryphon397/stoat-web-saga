@@ -16,6 +16,7 @@ export interface TypeVoice {
   userVolumes: Record<string, number>;
   userMutes: Record<string, boolean>;
   screenshareVolumes: Record<string, number>;
+  screenshareMutes: Record<string, boolean>;
 
   pushToTalkEnabled: boolean;
   pushToTalkKeybind: string;
@@ -68,6 +69,7 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       userVolumes: {},
       userMutes: {},
       screenshareVolumes: {},
+      screenshareMutes: {},
       pushToTalkEnabled: false,
       pushToTalkKeybind: "V",
       pushToTalkMode: "hold",
@@ -143,6 +145,14 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
             typeof userId === "string" && typeof volume === "number",
         )
         .forEach(([k, v]) => (data.screenshareVolumes[k] = v));
+    }
+
+    if (typeof input.screenshareMutes === "object") {
+      Object.entries(input.screenshareMutes)
+        .filter(
+          ([userId, muted]) => typeof userId === "string" && muted === true,
+        )
+        .forEach(([k, v]) => (data.screenshareMutes[k] = v));
     }
 
     // push to talk settings
@@ -258,6 +268,24 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    */
   getScreenshareVolume(userId: string): number {
     return this.get().screenshareVolumes[userId] ?? 1.5;
+  }
+
+  /**
+   * Set whether a user's screenshare audio is muted
+   * @param userId User ID
+   * @param muted Whether it should be muted
+   */
+  setScreenshareMuted(userId: string, muted: boolean) {
+    this.set("screenshareMutes", userId, muted);
+  }
+
+  /**
+   * Get whether a user's screenshare audio is muted
+   * @param userId User ID
+   * @returns Whether muted
+   */
+  getScreenshareMuted(userId: string): boolean {
+    return this.get().screenshareMutes[userId] ?? false;
   }
 
   /**

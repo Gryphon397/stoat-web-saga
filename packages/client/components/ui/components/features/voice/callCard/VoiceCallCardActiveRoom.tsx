@@ -222,11 +222,6 @@ function ScreenshareTile() {
   const user = useUser(participant.identity);
   const state = useState();
 
-  const isMuted = useIsMuted({
-    participant,
-    source: Track.Source.ScreenShareAudio,
-  });
-
   let videoRef: HTMLDivElement | undefined;
 
   const toggleFullscreen = () => {
@@ -269,9 +264,24 @@ function ScreenshareTile() {
           </div>
           <OverlayInner>
             <OverflowingText>{user().username}</OverflowingText>
-            <Show when={isMuted()}>
-              <Symbol size={18}>no_sound</Symbol>
-            </Show>
+            <button
+              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", padding: "2px" }}
+              title={state.voice.getScreenshareMuted(participant.identity) ? "Unmute screenshare audio" : "Mute screenshare audio"}
+              onClick={(e) => {
+                e.stopPropagation();
+                state.voice.setScreenshareMuted(
+                  participant.identity,
+                  !state.voice.getScreenshareMuted(participant.identity),
+                );
+              }}
+            >
+              <Show
+                when={state.voice.getScreenshareMuted(participant.identity)}
+                fallback={<Symbol size={18}>volume_up</Symbol>}
+              >
+                <Symbol size={18}>volume_off</Symbol>
+              </Show>
+            </button>
             <Symbol size={18}>fullscreen</Symbol>
           </OverlayInner>
         </div>
