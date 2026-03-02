@@ -1,7 +1,7 @@
 /* eslint-disable no-undef */
 
 import lnk from "lnk";
-import { lstat, readdir, readlink, rmdir, unlink } from "node:fs/promises";
+import { lstat, readdir, readlink, rm, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const publicFolder = resolve("public");
@@ -40,7 +40,7 @@ try {
     await readlink(path);
     await unlink(path);
   } catch {
-    await rmdir(path);
+    await rm(path, { recursive: true, force: true });
   }
 
   createSymlink();
