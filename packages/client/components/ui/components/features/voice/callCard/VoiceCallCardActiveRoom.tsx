@@ -233,6 +233,17 @@ function ScreenshareTile() {
     }
   };
 
+  const popOut = (e: MouseEvent) => {
+    e.stopPropagation();
+    const video = videoRef?.querySelector("video");
+    if (!video) return;
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(console.error);
+    } else {
+      video.requestPictureInPicture().catch(console.error);
+    }
+  };
+
   return (
     <div ref={videoRef} class={tile() + " group"} onClick={toggleFullscreen} style={{ cursor: "pointer" }}>
       <VideoTrack
@@ -281,6 +292,13 @@ function ScreenshareTile() {
               >
                 <Symbol size={18}>volume_off</Symbol>
               </Show>
+            </button>
+            <button
+              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", padding: "2px" }}
+              title="Pop out"
+              onClick={popOut}
+            >
+              <Symbol size={18}>picture_in_picture_alt</Symbol>
             </button>
             <Symbol size={18}>fullscreen</Symbol>
           </OverlayInner>
