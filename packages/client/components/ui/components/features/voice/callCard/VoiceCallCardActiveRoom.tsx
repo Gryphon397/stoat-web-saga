@@ -19,6 +19,8 @@ import { styled } from "styled-system/jsx";
 import { UserContextMenu } from "@revolt/app";
 import { useUser } from "@revolt/markdown/users";
 import { InRoom } from "@revolt/rtc";
+import { useState } from "@revolt/state";
+import { Slider } from "@revolt/ui";
 import { Avatar } from "@revolt/ui/components/design";
 import { OverflowingText } from "@revolt/ui/components/utils";
 import { Symbol } from "@revolt/ui/components/utils/Symbol";
@@ -218,6 +220,7 @@ function ScreenshareTile() {
   const participant = useEnsureParticipant();
   const track = useMaybeTrackRefContext();
   const user = useUser(participant.identity);
+  const state = useState();
 
   const isMuted = useIsMuted({
     participant,
@@ -244,13 +247,34 @@ function ScreenshareTile() {
       />
 
       <Overlay showOnHover>
-        <OverlayInner>
-          <OverflowingText>{user().username}</OverflowingText>
-          <Show when={isMuted()}>
-            <Symbol size={18}>no_sound</Symbol>
-          </Show>
-          <Symbol size={18}>fullscreen</Symbol>
-        </OverlayInner>
+        <div style={{ display: "flex", "flex-direction": "column", width: "100%", gap: "var(--gap-sm)" }}>
+          <div
+            style={{ display: "flex", "align-items": "center", gap: "var(--gap-sm)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Symbol size={16}>volume_up</Symbol>
+            <Slider
+              min={0}
+              max={3}
+              step={0.1}
+              value={state.voice.getScreenshareVolume(participant.identity)}
+              onInput={(e) =>
+                state.voice.setScreenshareVolume(
+                  participant.identity,
+                  e.currentTarget.value,
+                )
+              }
+              labelFormatter={(v) => (v * 100).toFixed(0) + "%"}
+            />
+          </div>
+          <OverlayInner>
+            <OverflowingText>{user().username}</OverflowingText>
+            <Show when={isMuted()}>
+              <Symbol size={18}>no_sound</Symbol>
+            </Show>
+            <Symbol size={18}>fullscreen</Symbol>
+          </OverlayInner>
+        </div>
       </Overlay>
     </div>
   );

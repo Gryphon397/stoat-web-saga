@@ -50,7 +50,9 @@ export function RoomAudioManager() {
             trackRef={track()}
             volume={
               state.voice.outputVolume *
-              state.voice.getUserVolume(track().participant.identity)
+              (track().publication.source === Track.Source.ScreenShareAudio
+                ? state.voice.getScreenshareVolume(track().participant.identity)
+                : state.voice.getUserVolume(track().participant.identity))
             }
             muted={
               state.voice.getUserMuted(track().participant.identity) ||
