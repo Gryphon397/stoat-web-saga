@@ -32,13 +32,14 @@ RUN pnpm install --frozen-lockfile
 COPY packages/ packages/
 
 # Build sub-dependencies (stoat.js, livekit-components, lingui plugins, panda css etc)
-RUN pnpm --filter stoat.js build && \
-  pnpm --filter solid-livekit-components build && \
-  pnpm --filter @lingui-solid/babel-plugin-lingui-macro build && \
-  pnpm --filter @lingui-solid/babel-plugin-extract-messages build && \
-  pnpm --filter client exec lingui compile --typescript && \
-  pnpm --filter client exec node scripts/copyAssets.mjs && \
-  pnpm --filter client exec panda codegen 
+# shamefully-hoist puts all binaries at /build/node_modules/.bin but pnpm's per-package
+# bin wrappers point to per-package node_modules/ paths that don't exist — invoke directly.
+RUN BIN=/build/node_modules/.bin && \
+  cd packages/stoat.js && $BIN/tsc && cd /build && \
+  cd packages/solid-livekit-components && $BIN/tsup --no-dts && cd /build && \
+  cd packages/js-lingui-solid/packages/babel-plugin-lingui-macro && $BIN/rimraf ./dist && $BIN/unbuild && cd /build && \
+  cd packages/js-lingui-solid/packages/babel-plugin-extract-messages && $BIN/rimraf ./dist && $BIN/unbuild && cd /build && \
+  cd packages/client && $BIN/lingui compile --typescript && node scripts/copyAssets.mjs && $BIN/panda codegen && cd /build
 
 # Build the client with placeholder env vars for runtime injection 
 # these are replaced by inject.js at container run startup
@@ -51,7 +52,7 @@ ENV VITE_GIPHY_KEY=__VITE_GIPHY_KEY__
 ENV VITE_CFG_ENABLE_VIDEO=__VITE_CFG_ENABLE_VIDEO__
 ENV BASE_PATH=/
 
-RUN pnpm --filter client exec vite build
+RUN cd packages/client && /build/node_modules/.bin/vite build
 
 # ============================================
 # Stage 2: Minimal runtime image

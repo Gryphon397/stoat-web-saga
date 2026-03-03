@@ -238,17 +238,6 @@ function ScreenshareTile() {
   const user = useUser(participant.identity);
   const state = useState();
 
-  let videoRef: HTMLDivElement | undefined;
-
-  const toggleFullscreen = () => {
-    if (!videoRef) return;
-    if (!document.fullscreenElement) {
-      videoRef.requestFullscreen();
-    } else {
-      document.exitFullscreen();
-    }
-  };
-
   const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
 
