@@ -45,12 +45,9 @@ export default {
     (import.meta.env.VITE_PROXY_URL as string) ??
     "https://proxy.stoatusercontent.com",
   /**
-   * What gifbox server to connect to by default.
+   * Giphy API key for GIF search.
    */
-  DEFAULT_GIFBOX_URL:
-    (import.meta.env.DEV ? import.meta.env.VITE_DEV_GIFBOX_URL : undefined) ??
-    (import.meta.env.VITE_GIFBOX_URL as string) ??
-    "https://api.gifbox.me",
+  GIPHY_API_KEY: import.meta.env.VITE_GIPHY_KEY as string | undefined,
   /**
    * hCaptcha site key to use if enabled
    */

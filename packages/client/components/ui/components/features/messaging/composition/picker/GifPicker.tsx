@@ -13,7 +13,6 @@ import { VirtualContainer } from "@minht11/solid-virtual-container";
 import { useQuery } from "@tanstack/solid-query";
 import { styled } from "styled-system/jsx";
 
-import { useClient } from "@revolt/client";
 import env from "@revolt/common/lib/env";
 import {
   CircularProgress,
@@ -23,6 +22,9 @@ import {
 
 import { CompositionMediaPickerContext } from "./CompositionMediaPicker";
 
+const GIPHY_BASE = "https://api.giphy.com/v1/gifs";
+const RATING = "pg";
+
 type GifCategory = { title: string; image: string };
 
 type GifResult = {
@@ -30,12 +32,22 @@ type GifResult = {
   media_formats: Record<"webm" | "tinywebm", { url: string }>;
 };
 
+function giphyGifToResult(gif: any): GifResult {
+  return {
+    url: gif.images?.original?.url ?? gif.url,
+    media_formats: {
+      webm: { url: gif.images?.original?.mp4 ?? "" },
+      tinywebm: { url: gif.images?.fixed_width_small?.mp4 ?? gif.images?.fixed_width?.mp4 ?? "" },
+    },
+  };
+}
+
 const FilterContext = createContext<(value: string) => void>();
 
 export function GifPicker() {
   const [filter, setFilter] = createSignal("");
 
-  const fliterLowercase = () => filter().toLowerCase();
+  const filterLowercase = () => filter().toLowerCase();
 
   return (
     <Stack>
@@ -59,8 +71,8 @@ export function GifPicker() {
             </FilterContext.Provider>
           }
         >
-          <Match when={fliterLowercase()}>
-            <GifSearch query={fliterLowercase()} />
+          <Match when={filterLowercase()}>
+            <GifSearch query={filterLowercase()} />
           </Match>
         </Switch>
       </Suspense>
@@ -92,44 +104,32 @@ type CategoryItem =
       gif: GifResult | null;
     };
 
-function gifboxUrl(client: ReturnType<typeof useClient>) {
-  const app = client()?.configuration?.app ?? "";
-  return `${app}/gifbox`;
-}
-
 function Categories() {
   let targetElement!: HTMLDivElement;
 
-  const client = useClient();
+  const key = env.GIPHY_API_KEY;
 
   const trendingCategories = useQuery<GifCategory[]>(() => ({
     queryKey: ["trendingGifCategories"],
-    queryFn: () => {
-      const [authHeader, authHeaderValue] = client()!.authenticationHeader;
-
-      return fetch(`${env.DEFAULT_GIFBOX_URL}/categories?locale=en_US`, {
-        headers: {
-          [authHeader]: authHeaderValue,
-        },
-      }).then((r) => r.json());
-    },
+    queryFn: () =>
+      fetch(`${GIPHY_BASE}/categories?api_key=${key}&rating=${RATING}`)
+        .then((r) => r.json())
+        .then((resp) =>
+          (resp.data ?? []).map((cat: any) => ({
+            title: cat.name,
+            image: cat.gif?.images?.fixed_width?.url ?? "",
+          })),
+        ),
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
   }));
 
   const trendingGif = useQuery<GifResult | null>(() => ({
     queryKey: ["trendingGif1"],
-    queryFn: () => {
-      const [authHeader, authHeaderValue] = client()!.authenticationHeader;
-
-      return fetch(`${env.DEFAULT_GIFBOX_URL}/trending?locale=en_US&limit=1`, {
-        headers: {
-          [authHeader]: authHeaderValue,
-        },
-      })
+    queryFn: () =>
+      fetch(`${GIPHY_BASE}/trending?api_key=${key}&limit=1&rating=${RATING}`)
         .then((r) => r.json())
-        .then((resp) => resp.results[0]);
-    },
+        .then((resp) => (resp.data?.[0] ? giphyGifToResult(resp.data[0]) : null)),
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
     initialData: null,
@@ -218,26 +218,19 @@ const Category = styled("div", {
 function GifSearch(props: { query: string }) {
   let targetElement!: HTMLDivElement;
 
-  const client = useClient();
+  const key = env.GIPHY_API_KEY;
 
   const search = useQuery<GifResult[]>(() => ({
     queryKey: ["gifs", props.query],
     queryFn: () => {
-      const [authHeader, authHeaderValue] = client()!.authenticationHeader;
+      const endpoint =
+        props.query === "trending"
+          ? `trending?api_key=${key}&limit=25&rating=${RATING}`
+          : `search?api_key=${key}&q=${encodeURIComponent(props.query)}&limit=25&rating=${RATING}`;
 
-      return fetch(
-        `${env.DEFAULT_GIFBOX_URL}/` +
-          (props.query === "trending"
-            ? `trending?locale=en_US`
-            : `search?locale=en_US&query=${encodeURIComponent(props.query)}`),
-        {
-          headers: {
-            [authHeader]: authHeaderValue,
-          },
-        },
-      )
+      return fetch(`${GIPHY_BASE}/${endpoint}`)
         .then((r) => r.json())
-        .then((resp) => resp.results);
+        .then((resp) => (resp.data ?? []).map(giphyGifToResult));
     },
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
