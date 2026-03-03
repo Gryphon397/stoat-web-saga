@@ -236,19 +236,25 @@ function ScreenshareTile() {
   const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
     const video = videoRef?.querySelector("video");
-    if (!video || !video.srcObject) return;
+    if (!video) return;
 
-    // Document PiP: real resizable OS window sharing the same MediaStream
-    if ("documentPictureInPicture" in window) {
+    const openDocumentPiP = async () => {
+      if (!video.srcObject) throw new Error("no srcObject");
+
       const pipWindow = await (window as any).documentPictureInPicture.requestWindow({
         width: 854,
         height: 480,
       });
 
       const doc = pipWindow.document;
-      doc.body.style.cssText = "margin:0;background:#000;width:100vw;height:100vh;overflow:hidden;position:relative;";
 
-      // Video
+      // Inject hover styles
+      const style = doc.createElement("style");
+      style.textContent = "button:hover{background:rgba(255,255,255,0.3)!important;}body{margin:0;}";
+      doc.head.appendChild(style);
+
+      doc.body.style.cssText = "background:#000;width:100vw;height:100vh;overflow:hidden;position:relative;";
+
       const pipVideo = doc.createElement("video") as HTMLVideoElement;
       pipVideo.srcObject = video.srcObject;
       pipVideo.autoplay = true;
@@ -256,12 +262,11 @@ function ScreenshareTile() {
       pipVideo.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
       doc.body.appendChild(pipVideo);
 
-      // Controls overlay
       const controls = doc.createElement("div");
       controls.style.cssText = "position:absolute;bottom:0;left:0;right:0;padding:12px 16px;background:linear-gradient(transparent,rgba(0,0,0,0.75));display:flex;align-items:center;gap:12px;";
 
       const muteBtn = doc.createElement("button");
-      muteBtn.style.cssText = "background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:18px;flex-shrink:0;";
+      muteBtn.style.cssText = "background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:18px;flex-shrink:0;transition:background 0.15s;";
 
       const slider = doc.createElement("input");
       slider.type = "range";
@@ -299,19 +304,33 @@ function ScreenshareTile() {
       controls.appendChild(label);
       doc.body.appendChild(controls);
 
-      // Poll for external state changes (e.g. muted from main window)
       const syncInterval = setInterval(syncControls, 500);
-
       pipWindow.addEventListener("pagehide", () => {
         clearInterval(syncInterval);
         pipVideo.srcObject = null;
       });
-    } else {
-      // Fallback: standard floating PiP
+    };
+
+    const openStandardPiP = async () => {
       if (document.pictureInPictureElement) {
-        document.exitPictureInPicture().catch(console.error);
+        await document.exitPictureInPicture();
       } else {
-        video.requestPictureInPicture().catch(console.error);
+        await video.requestPictureInPicture();
+      }
+    };
+
+    try {
+      if ("documentPictureInPicture" in window) {
+        await openDocumentPiP();
+      } else {
+        await openStandardPiP();
+      }
+    } catch (err) {
+      console.warn("[popOut] Document PiP failed, trying standard PiP:", err);
+      try {
+        await openStandardPiP();
+      } catch (err2) {
+        console.error("[popOut] Standard PiP also failed:", err2);
       }
     }
   };
