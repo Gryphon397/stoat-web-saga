@@ -235,8 +235,12 @@ function ScreenshareTile() {
 
   const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
-    const video = videoRef?.querySelector("video");
-    if (!video) return;
+
+    // Get the MediaStream directly from the LiveKit track — srcObject on the DOM
+    // video element is managed internally by LiveKit and may be null.
+    const mediaStreamTrack = (track as any)?.publication?.track?.mediaStreamTrack as MediaStreamTrack | undefined;
+    if (!mediaStreamTrack) return;
+    const stream = new MediaStream([mediaStreamTrack]);
 
     const openDocumentPiP = async () => {
       const pipWindow = await (window as any).documentPictureInPicture.requestWindow({
@@ -254,7 +258,7 @@ function ScreenshareTile() {
       doc.body.style.cssText = "background:#000;width:100vw;height:100vh;overflow:hidden;position:relative;";
 
       const pipVideo = doc.createElement("video") as HTMLVideoElement;
-      pipVideo.srcObject = video.srcObject;
+      pipVideo.srcObject = stream;
       pipVideo.autoplay = true;
       pipVideo.muted = true;
       pipVideo.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
@@ -312,9 +316,21 @@ function ScreenshareTile() {
     const openStandardPiP = async () => {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
-      } else {
-        await video.requestPictureInPicture();
+        return;
       }
+      // Create a hidden video element — the DOM video managed by LiveKit doesn't
+      // expose requestPictureInPicture reliably, so we create our own.
+      const tempVideo = document.createElement("video") as HTMLVideoElement;
+      tempVideo.srcObject = stream;
+      tempVideo.muted = true;
+      tempVideo.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;pointer-events:none;";
+      document.body.appendChild(tempVideo);
+      await tempVideo.play();
+      await tempVideo.requestPictureInPicture();
+      tempVideo.addEventListener("leavepictureinpicture", () => {
+        document.body.removeChild(tempVideo);
+        tempVideo.srcObject = null;
+      });
     };
 
     try {
@@ -329,7 +345,6 @@ function ScreenshareTile() {
         await openStandardPiP();
       } catch (err2) {
         console.error("[popOut] Standard PiP also failed:", err2);
-        alert("[popOut] Both PiP methods failed.\nDoc PiP: " + err + "\nStd PiP: " + err2);
       }
     }
   };
