@@ -233,14 +233,86 @@ function ScreenshareTile() {
     }
   };
 
-  const popOut = (e: MouseEvent) => {
+  const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
     const video = videoRef?.querySelector("video");
-    if (!video) return;
-    if (document.pictureInPictureElement) {
-      document.exitPictureInPicture().catch(console.error);
+    if (!video || !video.srcObject) return;
+
+    // Document PiP: real resizable OS window sharing the same MediaStream
+    if ("documentPictureInPicture" in window) {
+      const pipWindow = await (window as any).documentPictureInPicture.requestWindow({
+        width: 854,
+        height: 480,
+      });
+
+      const doc = pipWindow.document;
+      doc.body.style.cssText = "margin:0;background:#000;width:100vw;height:100vh;overflow:hidden;position:relative;";
+
+      // Video
+      const pipVideo = doc.createElement("video") as HTMLVideoElement;
+      pipVideo.srcObject = video.srcObject;
+      pipVideo.autoplay = true;
+      pipVideo.muted = true;
+      pipVideo.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
+      doc.body.appendChild(pipVideo);
+
+      // Controls overlay
+      const controls = doc.createElement("div");
+      controls.style.cssText = "position:absolute;bottom:0;left:0;right:0;padding:12px 16px;background:linear-gradient(transparent,rgba(0,0,0,0.75));display:flex;align-items:center;gap:12px;";
+
+      const muteBtn = doc.createElement("button");
+      muteBtn.style.cssText = "background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:18px;flex-shrink:0;";
+
+      const slider = doc.createElement("input");
+      slider.type = "range";
+      slider.min = "0";
+      slider.max = "3";
+      slider.step = "0.1";
+      slider.style.cssText = "flex:1;cursor:pointer;accent-color:#fff;";
+
+      const label = doc.createElement("span");
+      label.style.cssText = "color:#fff;font-size:12px;min-width:36px;text-align:right;font-family:sans-serif;";
+
+      const syncControls = () => {
+        const muted = state.voice.getScreenshareMuted(participant.identity);
+        const vol = state.voice.getScreenshareVolume(participant.identity);
+        muteBtn.textContent = muted ? "🔇" : "🔊";
+        muteBtn.title = muted ? "Unmute" : "Mute";
+        slider.value = String(vol);
+        label.textContent = Math.round(vol * 100) + "%";
+      };
+
+      muteBtn.onclick = () => {
+        state.voice.setScreenshareMuted(participant.identity, !state.voice.getScreenshareMuted(participant.identity));
+        syncControls();
+      };
+
+      slider.oninput = () => {
+        const vol = parseFloat(slider.value);
+        state.voice.setScreenshareVolume(participant.identity, vol);
+        label.textContent = Math.round(vol * 100) + "%";
+      };
+
+      syncControls();
+      controls.appendChild(muteBtn);
+      controls.appendChild(slider);
+      controls.appendChild(label);
+      doc.body.appendChild(controls);
+
+      // Poll for external state changes (e.g. muted from main window)
+      const syncInterval = setInterval(syncControls, 500);
+
+      pipWindow.addEventListener("pagehide", () => {
+        clearInterval(syncInterval);
+        pipVideo.srcObject = null;
+      });
     } else {
-      video.requestPictureInPicture().catch(console.error);
+      // Fallback: standard floating PiP
+      if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch(console.error);
+      } else {
+        video.requestPictureInPicture().catch(console.error);
+      }
     }
   };
 
