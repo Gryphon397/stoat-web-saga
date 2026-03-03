@@ -335,19 +335,17 @@ class Voice {
   async toggleScreenshare() {
     const room = this.room();
     if (!room) throw "invalid state";
+    const enabling = !room.localParticipant.isScreenShareEnabled;
     try {
       await room.localParticipant.setScreenShareEnabled(
-        !room.localParticipant.isScreenShareEnabled,
-        { audio: true },
+        enabling,
+        { audio: true, video: enabling ? { frameRate: this.#settings.screenshareFrameRate } : undefined },
       );
     } catch (e: any) {
-      // User cancelled the screen picker — not an error worth surfacing
-      if (
-        e?.name === "NotAllowedError" ||
-        e?.name === "AbortError" ||
-        e?.message?.includes("Permission denied") ||
-        e?.message?.includes("cancel")
-      ) {
+      // Swallow all errors when enabling — covers user cancel, permission denied,
+      // device errors, and any Electron-specific rejection reasons.
+      if (enabling) {
+        console.warn("[Voice] screenshare cancelled or failed:", e?.message ?? e);
         return;
       }
       throw e;

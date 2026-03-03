@@ -22,6 +22,9 @@ export function VoiceInputOptions() {
         <SelectSpeaker />
       </CategoryButton.Group>
       <VolumeSliders />
+      <CategoryButton.Group>
+        <ScreenshareFrameRate />
+      </CategoryButton.Group>
     </Column>
   );
 }
@@ -109,6 +112,34 @@ function SelectSpeaker() {
             }}
           >
             {device.label}
+          </CategoryButton>
+        )}
+      </For>
+    </CategoryCollapse>
+  );
+}
+
+/**
+ * Select screenshare frame rate
+ */
+function ScreenshareFrameRate() {
+  const state = useState();
+  const rates = [15, 30, 60] as const;
+
+  return (
+    <CategoryCollapse
+      icon={<Symbol>screen_share</Symbol>}
+      title={<Trans>Screen Share Frame Rate</Trans>}
+      description={`${state.voice.screenshareFrameRate} fps`}
+    >
+      <For each={rates}>
+        {(rate) => (
+          <CategoryButton
+            icon="blank"
+            action={<Checkbox checked={state.voice.screenshareFrameRate === rate} />}
+            onClick={() => (state.voice.screenshareFrameRate = rate)}
+          >
+            {rate} fps
           </CategoryButton>
         )}
       </For>

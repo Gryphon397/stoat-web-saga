@@ -17,6 +17,7 @@ export interface TypeVoice {
   userMutes: Record<string, boolean>;
   screenshareVolumes: Record<string, number>;
   screenshareMutes: Record<string, boolean>;
+  screenshareFrameRate: 15 | 30 | 60;
 
   pushToTalkEnabled: boolean;
   pushToTalkKeybind: string;
@@ -70,6 +71,7 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       userMutes: {},
       screenshareVolumes: {},
       screenshareMutes: {},
+      screenshareFrameRate: 15,
       pushToTalkEnabled: false,
       pushToTalkKeybind: "V",
       pushToTalkMode: "hold",
@@ -153,6 +155,14 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
           ([userId, muted]) => typeof userId === "string" && muted === true,
         )
         .forEach(([k, v]) => (data.screenshareMutes[k] = v));
+    }
+
+    if (
+      input.screenshareFrameRate === 15 ||
+      input.screenshareFrameRate === 30 ||
+      input.screenshareFrameRate === 60
+    ) {
+      data.screenshareFrameRate = input.screenshareFrameRate;
     }
 
     // push to talk settings
@@ -286,6 +296,20 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    */
   getScreenshareMuted(userId: string): boolean {
     return this.get().screenshareMutes[userId] ?? false;
+  }
+
+  /**
+   * Get screenshare frame rate
+   */
+  get screenshareFrameRate(): 15 | 30 | 60 {
+    return this.get().screenshareFrameRate;
+  }
+
+  /**
+   * Set screenshare frame rate
+   */
+  set screenshareFrameRate(value: 15 | 30 | 60) {
+    this.set("screenshareFrameRate", value);
   }
 
   /**
