@@ -335,10 +335,23 @@ class Voice {
   async toggleScreenshare() {
     const room = this.room();
     if (!room) throw "invalid state";
-    await room.localParticipant.setScreenShareEnabled(
-      !room.localParticipant.isScreenShareEnabled,
-      { audio: true},
-    );
+    try {
+      await room.localParticipant.setScreenShareEnabled(
+        !room.localParticipant.isScreenShareEnabled,
+        { audio: true },
+      );
+    } catch (e: any) {
+      // User cancelled the screen picker — not an error worth surfacing
+      if (
+        e?.name === "NotAllowedError" ||
+        e?.name === "AbortError" ||
+        e?.message?.includes("Permission denied") ||
+        e?.message?.includes("cancel")
+      ) {
+        return;
+      }
+      throw e;
+    }
 
     this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
   }
