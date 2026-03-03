@@ -239,8 +239,6 @@ function ScreenshareTile() {
     if (!video) return;
 
     const openDocumentPiP = async () => {
-      if (!video.srcObject) throw new Error("no srcObject");
-
       const pipWindow = await (window as any).documentPictureInPicture.requestWindow({
         width: 854,
         height: 480,
@@ -331,6 +329,7 @@ function ScreenshareTile() {
         await openStandardPiP();
       } catch (err2) {
         console.error("[popOut] Standard PiP also failed:", err2);
+        alert("[popOut] Both PiP methods failed.\nDoc PiP: " + err + "\nStd PiP: " + err2);
       }
     }
   };

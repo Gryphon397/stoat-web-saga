@@ -17,7 +17,7 @@ import { CircularProgress } from "@revolt/ui";
 
 import { Sidebar } from "./interface/Sidebar";
 
-const BUILD = 1;
+const BUILD = 2;
 
 /**
  * Application layout
