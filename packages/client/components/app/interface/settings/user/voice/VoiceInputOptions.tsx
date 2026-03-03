@@ -129,7 +129,7 @@ function ScreenshareFrameRate() {
   return (
     <CategoryCollapse
       icon={<Symbol>screen_share</Symbol>}
-      title={<Trans>Screen Share Frame Rate</Trans>}
+      title="Screen Share Frame Rate"
       description={`${state.voice.screenshareFrameRate} fps`}
     >
       <For each={rates}>
