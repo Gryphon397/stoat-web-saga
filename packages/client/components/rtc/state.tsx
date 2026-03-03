@@ -340,6 +340,13 @@ class Voice {
       await room.localParticipant.setScreenShareEnabled(
         enabling,
         { audio: true, video: enabling ? { frameRate: this.#settings.screenshareFrameRate } : undefined },
+        enabling ? {
+          screenShareEncoding: {
+            maxBitrate: 3_000_000,
+            maxFramerate: this.#settings.screenshareFrameRate,
+          },
+          simulcast: false,
+        } : undefined,
       );
     } catch (e: any) {
       // Swallow all errors when enabling — covers user cancel, permission denied,
