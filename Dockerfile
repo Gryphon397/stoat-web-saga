@@ -24,7 +24,7 @@ COPY packages/client/package.json packages/client/
 COPY packages/client/panda.config.ts packages/client/
 
 # Install dependencies
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # Submodules:
 # In CI: actions/checkout@v4 with submodules: recursive handles this automatically.
