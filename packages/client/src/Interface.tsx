@@ -17,6 +17,8 @@ import { CircularProgress } from "@revolt/ui";
 
 import { Sidebar } from "./interface/Sidebar";
 
+const BUILD = 1;
+
 /**
  * Application layout
  */
@@ -108,6 +110,9 @@ const Interface = (props: { children: JSX.Element }) => {
         </Switch>
 
         <NotificationsWorker />
+        <div style={{ position: "fixed", bottom: "4px", right: "6px", "font-size": "10px", opacity: "0.35", "pointer-events": "none", "z-index": "9999", "font-family": "monospace" }}>
+          build {BUILD}
+        </div>
       </div>
     </MessageCache>
   );
