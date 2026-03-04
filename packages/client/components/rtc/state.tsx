@@ -43,14 +43,18 @@ declare global {
   interface Window {
     stoatPopout?: {
       open: (params: {
-        url: string;
-        token: string;
         identity: string;
-        trackSource: string;
         username: string;
+        offerSdp: string;
       }) => Promise<void>;
       close: (identity: string) => Promise<void>;
       notifyMainDisconnected: () => Promise<void>;
+      getOffer: (identity: string) => Promise<string | null>;
+      sendAnswer: (identity: string, answerSdp: string) => Promise<void>;
+      onAnswer: (
+        callback: (identity: string, answerSdp: string) => void,
+      ) => () => void;
+      onPopoutClosed: (callback: (identity: string) => void) => () => void;
     };
   }
 }
@@ -133,9 +137,6 @@ class Voice {
 
   screenshare: Accessor<boolean>;
   #setScreenshare: Setter<boolean>;
-
-  #authUrl: string | undefined;
-  #authToken: string | undefined;
 
   constructor(voiceSettings: VoiceSettings) {
     this.#settings = voiceSettings;
@@ -241,9 +242,6 @@ class Voice {
       auth = await channel.joinCall(voiceServer);
     }
 
-    this.#authUrl = auth.url;
-    this.#authToken = auth.token;
-
     debugLog("PTT-WEB", "Connecting to room...");
     await room.connect(auth.url, auth.token, {
       autoSubscribe: false,
@@ -268,13 +266,6 @@ class Voice {
     }
   }
 
-  getConnectionCredentials(): { url: string; token: string } | undefined {
-    if (this.#authUrl && this.#authToken) {
-      return { url: this.#authUrl, token: this.#authToken };
-    }
-    return undefined;
-  }
-
   disconnect() {
     const room = this.room();
     if (!room) return;
@@ -283,9 +274,6 @@ class Voice {
 
     // Notify Electron to close all pop-out windows
     window.stoatPopout?.notifyMainDisconnected();
-
-    this.#authUrl = undefined;
-    this.#authToken = undefined;
 
     room.removeAllListeners();
     room.disconnect();

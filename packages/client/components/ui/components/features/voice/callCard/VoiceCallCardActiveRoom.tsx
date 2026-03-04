@@ -242,19 +242,83 @@ function ScreenshareTile() {
   const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
 
-    // Electron pop-out: open a bespoke BrowserWindow with its own LiveKit connection
+    // Electron pop-out: relay screenshare via local WebRTC peer connection
     if (window.stoatPopout) {
-      const creds = voice.getConnectionCredentials();
-      if (!creds) {
-        console.warn("[popOut] No LiveKit credentials available");
-        return;
-      }
+      const room = voice.room();
+      if (!room) return;
+
+      const target = room.getParticipantByIdentity(participant.identity);
+      if (!target) return;
+
+      const videoTrack = target.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
+      if (!videoTrack || videoTrack.readyState !== "live") return;
+
+      const audioTrack = target.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
+
+      // Create a MediaStream so addTrack generates proper SDP media sections
+      const stream = new MediaStream();
+      stream.addTrack(videoTrack);
+      if (audioTrack) stream.addTrack(audioTrack);
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+
+      pc.addTrack(videoTrack, stream);
+      if (audioTrack) pc.addTrack(audioTrack, stream);
+
+      // Monitor ICE state
+      pc.oniceconnectionstatechange = () => {
+        console.log("[popOut] ICE state:", pc.iceConnectionState);
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Wait for ICE gathering with timeout
+      await new Promise<void>((resolve) => {
+        if (pc.iceGatheringState === "complete") { resolve(); return; }
+        const timeout = setTimeout(resolve, 5000);
+        pc.addEventListener("icegatheringstatechange", () => {
+          if (pc.iceGatheringState === "complete") {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+
+      const offerSdp = pc.localDescription!.sdp;
+
+      // Listen for the answer (with cleanup)
+      const cleanupAnswer = window.stoatPopout.onAnswer(async (identity, answerSdp) => {
+        if (identity !== participant.identity) return;
+        try {
+          await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+          console.log("[popOut] WebRTC connection established");
+        } catch (err) {
+          console.error("[popOut] Failed to set answer:", err);
+        }
+      });
+
+      const cleanup = () => {
+        pc.close();
+        cleanupAnswer();
+        cleanupClosed();
+      };
+
+      const cleanupClosed = window.stoatPopout.onPopoutClosed((closedIdentity) => {
+        if (closedIdentity === participant.identity) cleanup();
+      });
+
+      videoTrack.addEventListener("ended", () => {
+        cleanup();
+        window.stoatPopout?.close(participant.identity);
+      });
+
       window.stoatPopout.open({
-        url: creds.url,
-        token: creds.token,
         identity: participant.identity,
-        trackSource: "screen_share",
         username: user().username ?? participant.identity,
+        offerSdp,
       });
       return;
     }
