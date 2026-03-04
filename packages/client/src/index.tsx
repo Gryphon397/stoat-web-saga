@@ -135,43 +135,53 @@ function MountContext(props: { children?: JSX.Element }) {
   );
 }
 
-render(
-  () => (
-    <StateContext>
-      <Router root={MountContext}>
-        <Route path="/login" component={AuthPage as never}>
-          <Route path="/delete/:token" component={FlowDeleteAccount} />
-          <Route path="/check" component={FlowCheck} />
-          <Route path="/create" component={FlowCreate} />
-          <Route path="/auth" component={FlowLogin} />
-          <Route path="/resend" component={FlowResend} />
-          <Route path="/reset" component={FlowReset} />
-          <Route path="/verify/:token" component={FlowVerify} />
-          <Route path="/reset/:token" component={FlowConfirmReset} />
-          <Route path="/*" component={FlowHome} />
-        </Route>
-        <Route path="/" component={Interface as never}>
-          <Route path="/pwa" component={PWARedirect} />
-          <Route path="/dev" component={DevelopmentPage} />
-          <Route path="/discover/*" component={Discover} />
-          <Route path="/settings" component={SettingsRedirect} />
-          <Route path="/invite/:code" component={InviteRedirect} />
-          <Route path="/bot/:code" component={BotRedirect} />
-          <Route path="/friends" component={Friends} />
-          <Route path="/server/:server/*">
-            <Route path="/channel/:channel/*" component={ChannelPage} />
-            <Route path="/*" component={ServerHome} />
+// Pop-out window: standalone route, no app context needed
+if (window.location.pathname === "/popout") {
+  import("./interface/Popout").then(({ default: Popout }) => {
+    render(
+      () => <Popout />,
+      document.getElementById("root") as HTMLElement,
+    );
+  });
+} else {
+  render(
+    () => (
+      <StateContext>
+        <Router root={MountContext}>
+          <Route path="/login" component={AuthPage as never}>
+            <Route path="/delete/:token" component={FlowDeleteAccount} />
+            <Route path="/check" component={FlowCheck} />
+            <Route path="/create" component={FlowCreate} />
+            <Route path="/auth" component={FlowLogin} />
+            <Route path="/resend" component={FlowResend} />
+            <Route path="/reset" component={FlowReset} />
+            <Route path="/verify/:token" component={FlowVerify} />
+            <Route path="/reset/:token" component={FlowConfirmReset} />
+            <Route path="/*" component={FlowHome} />
           </Route>
-          <Route path="/channel/:channel/*" component={ChannelPage} />
-          <Route path="/*" component={HomePage} />
-        </Route>
-      </Router>
+          <Route path="/" component={Interface as never}>
+            <Route path="/pwa" component={PWARedirect} />
+            <Route path="/dev" component={DevelopmentPage} />
+            <Route path="/discover/*" component={Discover} />
+            <Route path="/settings" component={SettingsRedirect} />
+            <Route path="/invite/:code" component={InviteRedirect} />
+            <Route path="/bot/:code" component={BotRedirect} />
+            <Route path="/friends" component={Friends} />
+            <Route path="/server/:server/*">
+              <Route path="/channel/:channel/*" component={ChannelPage} />
+              <Route path="/*" component={ServerHome} />
+            </Route>
+            <Route path="/channel/:channel/*" component={ChannelPage} />
+            <Route path="/*" component={HomePage} />
+          </Route>
+        </Router>
 
-      <LoadTheme />
-      <div style={{ position: "fixed", bottom: "4px", right: "6px", "font-size": "10px", opacity: "0.35", "pointer-events": "none", "z-index": "9999", "font-family": "monospace" }}>
-        build {BUILD}
-      </div>
-    </StateContext>
-  ),
-  document.getElementById("root") as HTMLElement,
-);
+        <LoadTheme />
+        <div style={{ position: "fixed", bottom: "4px", right: "6px", "font-size": "10px", opacity: "0.35", "pointer-events": "none", "z-index": "9999", "font-family": "monospace" }}>
+          build {BUILD}
+        </div>
+      </StateContext>
+    ),
+    document.getElementById("root") as HTMLElement,
+  );
+}

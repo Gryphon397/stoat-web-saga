@@ -38,6 +38,23 @@ declare global {
   }
 }
 
+// Type declarations for Stoat Desktop pop-out window API
+declare global {
+  interface Window {
+    stoatPopout?: {
+      open: (params: {
+        url: string;
+        token: string;
+        identity: string;
+        trackSource: string;
+        username: string;
+      }) => Promise<void>;
+      close: (identity: string) => Promise<void>;
+      notifyMainDisconnected: () => Promise<void>;
+    };
+  }
+}
+
 // Type declarations for Stoat Desktop push-to-talk API
 declare global {
   interface Window {
@@ -116,6 +133,9 @@ class Voice {
 
   screenshare: Accessor<boolean>;
   #setScreenshare: Setter<boolean>;
+
+  #authUrl: string | undefined;
+  #authToken: string | undefined;
 
   constructor(voiceSettings: VoiceSettings) {
     this.#settings = voiceSettings;
@@ -221,6 +241,9 @@ class Voice {
       auth = await channel.joinCall(voiceServer);
     }
 
+    this.#authUrl = auth.url;
+    this.#authToken = auth.token;
+
     debugLog("PTT-WEB", "Connecting to room...");
     await room.connect(auth.url, auth.token, {
       autoSubscribe: false,
@@ -245,11 +268,24 @@ class Voice {
     }
   }
 
+  getConnectionCredentials(): { url: string; token: string } | undefined {
+    if (this.#authUrl && this.#authToken) {
+      return { url: this.#authUrl, token: this.#authToken };
+    }
+    return undefined;
+  }
+
   disconnect() {
     const room = this.room();
     if (!room) return;
 
     voiceNotifications.playSelfLeave();
+
+    // Notify Electron to close all pop-out windows
+    window.stoatPopout?.notifyMainDisconnected();
+
+    this.#authUrl = undefined;
+    this.#authToken = undefined;
 
     room.removeAllListeners();
     room.disconnect();

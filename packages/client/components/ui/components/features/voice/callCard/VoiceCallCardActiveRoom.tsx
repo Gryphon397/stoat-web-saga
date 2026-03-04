@@ -18,7 +18,7 @@ import { styled } from "styled-system/jsx";
 
 import { UserContextMenu } from "@revolt/app";
 import { useUser } from "@revolt/markdown/users";
-import { InRoom } from "@revolt/rtc";
+import { InRoom, useVoice } from "@revolt/rtc";
 import { useState } from "@revolt/state";
 import { Slider } from "@revolt/ui";
 import { Avatar } from "@revolt/ui/components/design";
@@ -237,12 +237,29 @@ function ScreenshareTile() {
   const track = useMaybeTrackRefContext();
   const user = useUser(participant.identity);
   const state = useState();
+  const voice = useVoice();
 
   const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
 
-    // Get the MediaStream directly from the LiveKit track — srcObject on the DOM
-    // video element is managed internally by LiveKit and may be null.
+    // Electron pop-out: open a bespoke BrowserWindow with its own LiveKit connection
+    if (window.stoatPopout) {
+      const creds = voice.getConnectionCredentials();
+      if (!creds) {
+        console.warn("[popOut] No LiveKit credentials available");
+        return;
+      }
+      window.stoatPopout.open({
+        url: creds.url,
+        token: creds.token,
+        identity: participant.identity,
+        trackSource: "screen_share",
+        username: user().username ?? participant.identity,
+      });
+      return;
+    }
+
+    // Web fallback: documentPiP or standard PiP
     const mediaStreamTrack = (track as any)?.publication?.track?.mediaStreamTrack as MediaStreamTrack | undefined;
     if (!mediaStreamTrack) return;
     const stream = new MediaStream([mediaStreamTrack]);
@@ -288,7 +305,7 @@ function ScreenshareTile() {
       const syncControls = () => {
         const muted = state.voice.getScreenshareMuted(participant.identity);
         const vol = state.voice.getScreenshareVolume(participant.identity);
-        muteBtn.textContent = muted ? "🔇" : "🔊";
+        muteBtn.textContent = muted ? "\u{1F507}" : "\u{1F50A}";
         muteBtn.title = muted ? "Unmute" : "Mute";
         slider.value = String(vol);
         label.textContent = Math.round(vol * 100) + "%";
@@ -323,8 +340,6 @@ function ScreenshareTile() {
         await document.exitPictureInPicture();
         return;
       }
-      // Create a hidden video element — the DOM video managed by LiveKit doesn't
-      // expose requestPictureInPicture reliably, so we create our own.
       const tempVideo = document.createElement("video") as HTMLVideoElement;
       tempVideo.srcObject = stream;
       tempVideo.muted = true;
@@ -338,11 +353,7 @@ function ScreenshareTile() {
       });
     };
 
-    // documentPictureInPicture.requestWindow() consumes user activation even when
-    // it throws, leaving requestPictureInPicture() with nothing. Skip it on Electron
-    // so standard PiP keeps the activation. On web, documentPiP works fine.
-    const isElectron = navigator.userAgent.includes("Electron");
-    if (!isElectron && "documentPictureInPicture" in window) {
+    if ("documentPictureInPicture" in window) {
       try {
         await openDocumentPiP();
         return;
