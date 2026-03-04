@@ -338,8 +338,11 @@ function ScreenshareTile() {
       });
     };
 
-    // Try documentPictureInPicture first on all platforms (Electron 38 supports it).
-    if ("documentPictureInPicture" in window) {
+    // documentPictureInPicture.requestWindow() consumes user activation even when
+    // it throws, leaving requestPictureInPicture() with nothing. Skip it on Electron
+    // so standard PiP keeps the activation. On web, documentPiP works fine.
+    const isElectron = navigator.userAgent.includes("Electron");
+    if (!isElectron && "documentPictureInPicture" in window) {
       try {
         await openDocumentPiP();
         return;
@@ -347,61 +350,10 @@ function ScreenshareTile() {
         console.warn("[popOut] documentPiP failed:", err);
       }
     }
-
-    // documentPiP failed (or unavailable). requestWindow() consumes user activation
-    // even on failure, so requestPictureInPicture() won't work after this point.
-    // On Electron: open a native popup window instead (no activation required).
-    // On web: try standard PiP as a last resort.
-    const isElectron = navigator.userAgent.includes("Electron");
-    if (isElectron) {
-      const key = `__popoutStream_${Date.now()}`;
-      (window as any)[key] = stream;
-      const popup = window.open(
-        "",
-        "_blank",
-        "width=854,height=480,menubar=no,toolbar=no,location=no,status=no,scrollbars=no",
-      );
-      if (popup) {
-        popup.document.open();
-        popup.document.write(`<!DOCTYPE html><html><head><style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#000;overflow:hidden;font-family:sans-serif}
-video{width:100vw;height:100vh;object-fit:contain;display:block}
-.controls{position:fixed;bottom:0;left:0;right:0;padding:12px 16px;background:linear-gradient(transparent,rgba(0,0,0,.75));display:flex;align-items:center;gap:12px;opacity:0;transition:opacity .2s}
-body:hover .controls{opacity:1}
-button{background:rgba(255,255,255,.15);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:18px;flex-shrink:0;transition:background .15s}
-button:hover{background:rgba(255,255,255,.3)}
-input[type=range]{flex:1;cursor:pointer;accent-color:#fff}
-span{color:#fff;font-size:12px;min-width:36px;text-align:right}
-</style></head><body>
-<video id="v" autoplay muted playsinline></video>
-<div class="controls">
-  <button id="m">🔊</button>
-  <input type="range" id="s" min="0" max="3" step="0.1" value="1">
-  <span id="l">100%</span>
-</div>
-<script>
-try {
-  const v=document.getElementById('v');
-  const stream=window.opener&&window.opener['${key}'];
-  if(stream){v.srcObject=stream;}
-  const m=document.getElementById('m');
-  const s=document.getElementById('s');
-  const l=document.getElementById('l');
-  let muted=false;
-  m.onclick=()=>{muted=!muted;v.muted=muted;m.textContent=muted?'🔇':'🔊';};
-  s.oninput=()=>{v.volume=Math.min(parseFloat(s.value),1);l.textContent=Math.round(parseFloat(s.value)*100)+'%';};
-} catch(e){console.error('popup stream error',e);}
-window.addEventListener('unload',()=>{try{delete window.opener['${key}'];}catch(e){}});
-</script></body></html>`);
-        popup.document.close();
-      }
-    } else {
-      try {
-        await openStandardPiP();
-      } catch (err2) {
-        console.error("[popOut] Standard PiP failed:", err2);
-      }
+    try {
+      await openStandardPiP();
+    } catch (err2) {
+      console.error("[popOut] Standard PiP failed:", err2);
     }
   };
 
