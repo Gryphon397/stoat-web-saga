@@ -32,7 +32,7 @@ export default function Popout() {
       });
 
       pc.ontrack = (event) => {
-        console.log("[Popout] Received track:", event.track.kind);
+        console.log("[Popout] Received track:", event.track.kind, event.track.readyState);
         if (event.track.kind === "video" && videoEl) {
           videoEl.srcObject = new MediaStream([event.track]);
           videoEl.play().catch(() => {});
@@ -46,11 +46,11 @@ export default function Popout() {
       };
 
       pc.oniceconnectionstatechange = () => {
-        const state = pc?.iceConnectionState;
-        console.log("[Popout] ICE state:", state);
-        if (state === "connected" || state === "completed") {
+        const s = pc?.iceConnectionState;
+        console.log("[Popout] ICE state:", s);
+        if (s === "connected" || s === "completed") {
           setStatus("");
-        } else if (state === "disconnected" || state === "failed") {
+        } else if (s === "disconnected" || s === "failed") {
           setStatus("Connection lost");
           setTimeout(() => window.close(), 2000);
         }
@@ -60,7 +60,6 @@ export default function Popout() {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      // Wait for ICE gathering with timeout
       await new Promise<void>((resolve) => {
         if (pc!.iceGatheringState === "complete") { resolve(); return; }
         const timeout = setTimeout(resolve, 5000);
@@ -85,7 +84,7 @@ export default function Popout() {
     pc?.close();
   });
 
-  const handleVolumeChange = (val: number) => {
+  const handleVolume = (val: number) => {
     setVolume(val);
     if (audioEl) audioEl.volume = val;
   };
@@ -99,13 +98,13 @@ export default function Popout() {
   return (
     <>
       <style>{`
-        html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-        .popout-controls { opacity: 0; transition: opacity 0.2s; }
-        .popout-container:hover .popout-controls { opacity: 1; }
-        .popout-btn:hover { background: rgba(255,255,255,0.3) !important; }
+        html, body { margin: 0; padding: 0; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .vol-bar { opacity: 0; transition: opacity 0.2s; }
+        .popout-root:hover .vol-bar { opacity: 1; }
+        .vol-btn:hover { background: rgba(255,255,255,0.3) !important; }
       `}</style>
       <div
-        class="popout-container"
+        class="popout-root"
         style={{
           width: "100vw",
           height: "100vh",
@@ -127,7 +126,6 @@ export default function Popout() {
         />
         <audio ref={audioEl} autoplay />
 
-        {/* Status overlay */}
         {status() && (
           <div
             style={{
@@ -136,7 +134,6 @@ export default function Popout() {
               left: "50%",
               transform: "translate(-50%, -50%)",
               color: "#aaa",
-              "font-family": "sans-serif",
               "font-size": "14px",
             }}
           >
@@ -144,79 +141,67 @@ export default function Popout() {
           </div>
         )}
 
-        {/* Bottom controls — hover to reveal */}
+        {/* Username — bottom left */}
         <div
-          class="popout-controls"
+          class="vol-bar"
           style={{
             position: "absolute",
-            bottom: "0",
-            left: "0",
-            right: "0",
-            padding: "12px 16px",
-            background: "linear-gradient(transparent, rgba(0,0,0,0.8))",
-            display: "flex",
-            "align-items": "center",
-            gap: "12px",
+            bottom: "8px",
+            left: "12px",
+            color: "#fff",
+            "font-size": "13px",
+            "text-shadow": "0 1px 4px rgba(0,0,0,0.8)",
+            "max-width": "40%",
+            overflow: "hidden",
+            "text-overflow": "ellipsis",
+            "white-space": "nowrap",
           }}
         >
-          <span
-            style={{
-              color: "#fff",
-              "font-size": "13px",
-              "font-family": "sans-serif",
-              "flex-shrink": "0",
-              "max-width": "200px",
-              overflow: "hidden",
-              "text-overflow": "ellipsis",
-              "white-space": "nowrap",
-            }}
-          >
-            {username}
-          </span>
+          {username}
+        </div>
 
+        {/* Volume control — bottom right */}
+        <div
+          class="vol-bar"
+          style={{
+            position: "absolute",
+            bottom: "8px",
+            right: "12px",
+            display: "flex",
+            "align-items": "center",
+            gap: "6px",
+            background: "rgba(0,0,0,0.65)",
+            "border-radius": "6px",
+            padding: "4px 8px",
+          }}
+        >
           <button
-            class="popout-btn"
+            class="vol-btn"
             onClick={toggleMute}
             title={muted() ? "Unmute" : "Mute"}
             style={{
-              background: "rgba(255,255,255,0.15)",
+              background: "none",
               border: "none",
-              "border-radius": "6px",
               color: "#fff",
               cursor: "pointer",
-              padding: "6px 10px",
+              padding: "2px 4px",
               "font-size": "16px",
-              "flex-shrink": "0",
+              "line-height": "1",
+              "border-radius": "4px",
             }}
           >
             {muted() ? "\u{1F507}" : "\u{1F50A}"}
           </button>
-
           <input
             type="range"
             min="0"
             max="1"
             step="0.05"
             value={volume()}
-            onInput={(e) =>
-              handleVolumeChange(parseFloat(e.currentTarget.value))
-            }
-            style={{
-              flex: "1",
-              cursor: "pointer",
-              "accent-color": "#fff",
-            }}
+            onInput={(e) => handleVolume(parseFloat(e.currentTarget.value))}
+            style={{ width: "90px", cursor: "pointer", "accent-color": "#fff" }}
           />
-
-          <span
-            style={{
-              color: "#fff",
-              "font-size": "12px",
-              "min-width": "36px",
-              "text-align": "right",
-              "font-family": "sans-serif",
-            }}
-          >
+          <span style={{ color: "#fff", "font-size": "11px", "min-width": "30px", "text-align": "right" }}>
             {Math.round(volume() * 100)}%
           </span>
         </div>

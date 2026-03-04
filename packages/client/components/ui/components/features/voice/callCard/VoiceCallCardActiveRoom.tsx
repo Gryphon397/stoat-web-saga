@@ -242,7 +242,7 @@ function ScreenshareTile() {
   const popOut = async (e: MouseEvent) => {
     e.stopPropagation();
 
-    // Electron pop-out: relay screenshare via local WebRTC peer connection
+    // Electron pop-out: relay screenshare via captureStream + local WebRTC
     if (window.stoatPopout) {
       const room = voice.room();
       if (!room) return;
@@ -250,24 +250,33 @@ function ScreenshareTile() {
       const target = room.getParticipantByIdentity(participant.identity);
       if (!target) return;
 
-      const videoTrack = target.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
-      if (!videoTrack || videoTrack.readyState !== "live") return;
+      const videoMST = target.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
+      if (!videoMST || videoMST.readyState !== "live") return;
+      const audioMST = target.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
 
-      const audioTrack = target.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
+      // Render remote tracks in a hidden <video> and use captureStream() to
+      // produce a fresh local stream.  Directly re-sending a remote WebRTC
+      // track through a second PeerConnection silently drops frames in some
+      // Chromium builds; captureStream() avoids that entirely.
+      const tempVideo = document.createElement("video");
+      const src = new MediaStream([videoMST]);
+      if (audioMST) src.addTrack(audioMST);
+      tempVideo.srcObject = src;
+      tempVideo.volume = 0;
+      tempVideo.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none;z-index:-9999;";
+      document.body.appendChild(tempVideo);
+      await tempVideo.play();
 
-      // Create a MediaStream so addTrack generates proper SDP media sections
-      const stream = new MediaStream();
-      stream.addTrack(videoTrack);
-      if (audioTrack) stream.addTrack(audioTrack);
+      const relayStream: MediaStream = (tempVideo as any).captureStream();
+      console.log("[popOut] captureStream tracks:", relayStream.getTracks().map(t => t.kind));
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
+      for (const t of relayStream.getTracks()) {
+        pc.addTrack(t, relayStream);
+      }
 
-      pc.addTrack(videoTrack, stream);
-      if (audioTrack) pc.addTrack(audioTrack, stream);
-
-      // Monitor ICE state
       pc.oniceconnectionstatechange = () => {
         console.log("[popOut] ICE state:", pc.iceConnectionState);
       };
@@ -275,7 +284,6 @@ function ScreenshareTile() {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Wait for ICE gathering with timeout
       await new Promise<void>((resolve) => {
         if (pc.iceGatheringState === "complete") { resolve(); return; }
         const timeout = setTimeout(resolve, 5000);
@@ -289,7 +297,6 @@ function ScreenshareTile() {
 
       const offerSdp = pc.localDescription!.sdp;
 
-      // Listen for the answer (with cleanup)
       const cleanupAnswer = window.stoatPopout.onAnswer(async (identity, answerSdp) => {
         if (identity !== participant.identity) return;
         try {
@@ -304,13 +311,16 @@ function ScreenshareTile() {
         pc.close();
         cleanupAnswer();
         cleanupClosed();
+        for (const t of relayStream.getTracks()) t.stop();
+        tempVideo.srcObject = null;
+        tempVideo.remove();
       };
 
       const cleanupClosed = window.stoatPopout.onPopoutClosed((closedIdentity) => {
         if (closedIdentity === participant.identity) cleanup();
       });
 
-      videoTrack.addEventListener("ended", () => {
+      videoMST.addEventListener("ended", () => {
         cleanup();
         window.stoatPopout?.close(participant.identity);
       });
