@@ -43,7 +43,7 @@ import { ServerHome } from "./interface/ServerHome";
 import { ChannelPage } from "./interface/channels/ChannelPage";
 import "./serviceWorkerInterface";
 
-const BUILD = 5;
+const BUILD = 6;
 
 /**
  * Redirect PWA start to the last active path
