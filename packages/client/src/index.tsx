@@ -46,6 +46,8 @@ import "./serviceWorkerInterface";
 
 attachDevtoolsOverlay();
 
+const BUILD = 5;
+
 /**
  * Redirect PWA start to the last active path
  */
@@ -169,7 +171,9 @@ render(
       </Router>
 
       <LoadTheme />
-      {/* <ReportBug /> */}
+      <div style={{ position: "fixed", bottom: "4px", right: "6px", "font-size": "10px", opacity: "0.35", "pointer-events": "none", "z-index": "9999", "font-family": "monospace" }}>
+        build {BUILD}
+      </div>
     </StateContext>
   ),
   document.getElementById("root") as HTMLElement,

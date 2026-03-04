@@ -328,7 +328,7 @@ function ScreenshareTile() {
       const tempVideo = document.createElement("video") as HTMLVideoElement;
       tempVideo.srcObject = stream;
       tempVideo.muted = true;
-      tempVideo.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;pointer-events:none;";
+      tempVideo.style.cssText = "position:fixed;bottom:0;right:0;width:1px;height:1px;pointer-events:none;opacity:0;";
       document.body.appendChild(tempVideo);
       await tempVideo.play();
       await tempVideo.requestPictureInPicture();
@@ -338,19 +338,22 @@ function ScreenshareTile() {
       });
     };
 
-    try {
-      if ("documentPictureInPicture" in window) {
-        await openDocumentPiP();
-      } else {
-        await openStandardPiP();
-      }
-    } catch (err) {
-      console.warn("[popOut] Document PiP failed, trying standard PiP:", err);
+    // On Electron, documentPictureInPicture.requestWindow() consumes the user's
+    // transient activation even when it throws, leaving requestPictureInPicture()
+    // with no activation. Skip it on Electron and go straight to standard PiP.
+    const isElectron = navigator.userAgent.includes("Electron");
+    if (!isElectron && "documentPictureInPicture" in window) {
       try {
-        await openStandardPiP();
-      } catch (err2) {
-        console.error("[popOut] Standard PiP also failed:", err2);
+        await openDocumentPiP();
+        return;
+      } catch (err) {
+        console.warn("[popOut] Document PiP failed:", err);
       }
+    }
+    try {
+      await openStandardPiP();
+    } catch (err2) {
+      console.error("[popOut] Standard PiP failed:", err2);
     }
   };
 
@@ -407,8 +410,7 @@ function ScreenshareTile() {
           </div>
           <OverlayInner>
             <OverflowingText>{user().username}</OverflowingText>
-            <button
-              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", padding: "2px" }}
+            <OverlayIconButton
               title={state.voice.getScreenshareMuted(participant.identity) ? "Unmute screenshare audio" : "Mute screenshare audio"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -424,14 +426,13 @@ function ScreenshareTile() {
               >
                 <Symbol size={18}>volume_off</Symbol>
               </Show>
-            </button>
-            <button
-              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", padding: "2px" }}
+            </OverlayIconButton>
+            <OverlayIconButton
               title="Pop out"
               onClick={popOut}
             >
               <Symbol size={18}>picture_in_picture_alt</Symbol>
-            </button>
+            </OverlayIconButton>
             <Symbol size={18}>fullscreen</Symbol>
           </OverlayInner>
         </div>
@@ -516,6 +517,22 @@ const OverlayInner = styled("div", {
 
     _first: {
       flexGrow: 1,
+    },
+  },
+});
+
+const OverlayIconButton = styled("button", {
+  base: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: "inherit",
+    display: "flex",
+    padding: "2px",
+    borderRadius: "var(--borderRadius-sm)",
+    transition: "background var(--transitions-fast)",
+    _hover: {
+      background: "rgba(255,255,255,0.15)",
     },
   },
 });
