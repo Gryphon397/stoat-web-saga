@@ -254,21 +254,21 @@ function ScreenshareTile() {
       if (!videoMST || videoMST.readyState !== "live") return;
       const audioMST = target.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
 
-      // Render remote tracks in a hidden <video> and use captureStream() to
-      // produce a fresh local stream.  Directly re-sending a remote WebRTC
-      // track through a second PeerConnection silently drops frames in some
-      // Chromium builds; captureStream() avoids that entirely.
-      const tempVideo = document.createElement("video");
-      const src = new MediaStream([videoMST]);
-      if (audioMST) src.addTrack(audioMST);
-      tempVideo.srcObject = src;
-      tempVideo.volume = 0;
-      tempVideo.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none;z-index:-9999;";
-      document.body.appendChild(tempVideo);
-      await tempVideo.play();
-
-      const relayStream: MediaStream = (tempVideo as any).captureStream();
-      console.log("[popOut] captureStream tracks:", relayStream.getTracks().map(t => t.kind));
+      // Clone the remote tracks to produce independent local copies for the
+      // relay PeerConnection.  Cloning avoids two issues with the previous
+      // captureStream() approach:
+      //   1. captureStream() requires a hidden <video> element to keep
+      //      decoding frames.  When the main window loses focus (user is
+      //      watching a popout) Chromium background-throttles those invisible
+      //      elements, freezing the second (and subsequent) popout streams.
+      //   2. The hidden element was never cleaned up if the component
+      //      unmounted before the popout closed.
+      // Cloned tracks share the same LiveKit decoder source without any DOM
+      // dependency and are independently stoppable.
+      const videoClone = videoMST.clone();
+      const audioClone = audioMST?.clone() ?? null;
+      const relayStream = new MediaStream([videoClone, ...(audioClone ? [audioClone] : [])]);
+      console.log("[popOut] relay tracks:", relayStream.getTracks().map(t => t.kind));
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -307,23 +307,30 @@ function ScreenshareTile() {
         }
       });
 
+      // Guard against double-cleanup (onPopoutClosed + ICE disconnected racing).
+      let cleaned = false;
       const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
         pc.close();
         cleanupAnswer();
         cleanupClosed();
-        for (const t of relayStream.getTracks()) t.stop();
-        tempVideo.srcObject = null;
-        tempVideo.remove();
+        videoMST.removeEventListener("ended", onEnded);
+        videoClone.stop();
+        if (audioClone) audioClone.stop();
       };
 
       const cleanupClosed = window.stoatPopout.onPopoutClosed((closedIdentity) => {
         if (closedIdentity === participant.identity) cleanup();
       });
 
-      videoMST.addEventListener("ended", () => {
+      // Named so it can be removed in cleanup — prevents stale listeners
+      // accumulating if the same stream is popped out multiple times.
+      const onEnded = () => {
         cleanup();
         window.stoatPopout?.close(participant.identity);
-      });
+      };
+      videoMST.addEventListener("ended", onEnded);
 
       window.stoatPopout.open({
         identity: participant.identity,
@@ -535,7 +542,7 @@ const tile = cva({
     display: "grid",
     gridTemplateRows: "minmax(0, 1fr)",
     gridTemplateColumns: "minmax(0, 1fr)",
-    transition: ".3s ease all",
+    transition: "outline-color 60ms ease",
     borderRadius: "var(--borderRadius-lg)",
 
     color: "var(--md-sys-color-on-surface)",

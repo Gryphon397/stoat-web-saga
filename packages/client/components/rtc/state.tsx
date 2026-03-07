@@ -175,6 +175,7 @@ class Voice {
     this.disconnect();
 
     const room = new Room({
+      activeSpeakerInterval: 100,
       audioCaptureDefaults: {
         deviceId: this.#settings.preferredAudioInputDevice,
         echoCancellation: this.#settings.echoCancellation,
