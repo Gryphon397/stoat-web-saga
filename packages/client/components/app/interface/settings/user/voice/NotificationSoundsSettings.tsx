@@ -277,6 +277,46 @@ export function NotificationSoundsSettings() {
           >
             Screenshare End
           </CategoryButton>
+
+          <CategoryButton
+            icon="blank"
+            disabled={individualSoundsDisabled()}
+            action={
+              <div style={{ "pointer-events": "none" }}>
+                <Checkbox
+                  checked={state.voice.soundPttActivate}
+                  disabled={individualSoundsDisabled()}
+                />
+              </div>
+            }
+            onClick={() => {
+              if (!individualSoundsDisabled()) {
+                state.voice.soundPttActivate = !state.voice.soundPttActivate;
+              }
+            }}
+          >
+            PTT Activate
+          </CategoryButton>
+
+          <CategoryButton
+            icon="blank"
+            disabled={individualSoundsDisabled()}
+            action={
+              <div style={{ "pointer-events": "none" }}>
+                <Checkbox
+                  checked={state.voice.soundPttDeactivate}
+                  disabled={individualSoundsDisabled()}
+                />
+              </div>
+            }
+            onClick={() => {
+              if (!individualSoundsDisabled()) {
+                state.voice.soundPttDeactivate = !state.voice.soundPttDeactivate;
+              }
+            }}
+          >
+            PTT Deactivate
+          </CategoryButton>
         </CategoryButton.Group>
       </Column>
     </Column>

@@ -12,7 +12,9 @@ type SoundName =
   | "unmute"
   | "receive_message"
   | "screenshare_start"
-  | "screenshare_end";
+  | "screenshare_end"
+  | "ptt_activate"
+  | "ptt_deactivate";
 
 const SOUND_FILES: Record<SoundName, string> = {
   join_call: "/assets/audio/join_call.mp3",
@@ -24,6 +26,8 @@ const SOUND_FILES: Record<SoundName, string> = {
   receive_message: "/assets/audio/receive_message.mp3",
   screenshare_start: "/assets/audio/screenshare_start.mp3",
   screenshare_end: "/assets/audio/screenshare_end.mp3",
+  ptt_activate: "/assets/audio/ptt_activate.mp3",
+  ptt_deactivate: "/assets/audio/ptt_deactivate.mp3",
 };
 
 class VoiceNotificationManager {
@@ -99,6 +103,8 @@ class VoiceNotificationManager {
     receive_message: true,
     screenshare_start: true,
     screenshare_end: true,
+    ptt_activate: true,
+    ptt_deactivate: true,
   };
 
   /**
@@ -203,6 +209,16 @@ class VoiceNotificationManager {
   /** Local user stopped screensharing */
   playScreenshareEnd(): void {
     this.playSound("screenshare_end");
+  }
+
+  /** PTT key pressed */
+  playPttActivate(): void {
+    this.playSound("ptt_activate");
+  }
+
+  /** PTT key released */
+  playPttDeactivate(): void {
+    this.playSound("ptt_deactivate");
   }
 
   setEnabled(enabled: boolean): void {

@@ -457,10 +457,18 @@ class Voice {
       const shouldPlaySound = !this.#settings.pushToTalkEnabled || this.#settings.pushToTalkNotificationSounds;
       
       if (shouldPlaySound) {
-        if (enabled) {
-          voiceNotifications.playUnmute();
+        if (this.#settings.pushToTalkEnabled) {
+          if (enabled) {
+            voiceNotifications.playPttActivate();
+          } else {
+            voiceNotifications.playPttDeactivate();
+          }
         } else {
-          voiceNotifications.playMute();
+          if (enabled) {
+            voiceNotifications.playUnmute();
+          } else {
+            voiceNotifications.playMute();
+          }
         }
       }
     } else {
@@ -770,6 +778,8 @@ export function VoiceContext(props: { children: JSX.Element }) {
     const soundReceiveMessage = state.voice.soundReceiveMessage;
     const soundScreenshareStart = state.voice.soundScreenshareStart;
     const soundScreenshareEnd = state.voice.soundScreenshareEnd;
+    const soundPttActivate = state.voice.soundPttActivate;
+    const soundPttDeactivate = state.voice.soundPttDeactivate;
     
     console.log("[VoiceNotifications] Settings updated - enabled:", enabled, "volume:", volume);
     
@@ -787,6 +797,8 @@ export function VoiceContext(props: { children: JSX.Element }) {
     voiceNotifications.setSoundEnabled("receive_message", soundReceiveMessage);
     voiceNotifications.setSoundEnabled("screenshare_start", soundScreenshareStart);
     voiceNotifications.setSoundEnabled("screenshare_end", soundScreenshareEnd);
+    voiceNotifications.setSoundEnabled("ptt_activate", soundPttActivate);
+    voiceNotifications.setSoundEnabled("ptt_deactivate", soundPttDeactivate);
   });
 
   // live-update mic constraints when noise suppression / echo cancellation changes

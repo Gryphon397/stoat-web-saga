@@ -38,6 +38,8 @@ export interface TypeVoice {
   soundReceiveMessage: boolean;
   soundScreenshareStart: boolean;
   soundScreenshareEnd: boolean;
+  soundPttActivate: boolean;
+  soundPttDeactivate: boolean;
 }
 
 /**
@@ -90,6 +92,8 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       soundReceiveMessage: true,
       soundScreenshareStart: true,
       soundScreenshareEnd: true,
+      soundPttActivate: true,
+      soundPttDeactivate: true,
     };
   }
 
@@ -231,6 +235,12 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     }
     if (typeof input.soundScreenshareEnd === "boolean") {
       data.soundScreenshareEnd = input.soundScreenshareEnd;
+    }
+    if (typeof input.soundPttActivate === "boolean") {
+      data.soundPttActivate = input.soundPttActivate;
+    }
+    if (typeof input.soundPttDeactivate === "boolean") {
+      data.soundPttDeactivate = input.soundPttDeactivate;
     }
 
     return data;
@@ -661,5 +671,21 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
 
   set soundScreenshareEnd(value: boolean) {
     this.set("soundScreenshareEnd", value);
+  }
+
+  get soundPttActivate(): boolean {
+    return this.get().soundPttActivate;
+  }
+
+  set soundPttActivate(value: boolean) {
+    this.set("soundPttActivate", value);
+  }
+
+  get soundPttDeactivate(): boolean {
+    return this.get().soundPttDeactivate;
+  }
+
+  set soundPttDeactivate(value: boolean) {
+    this.set("soundPttDeactivate", value);
   }
 }
