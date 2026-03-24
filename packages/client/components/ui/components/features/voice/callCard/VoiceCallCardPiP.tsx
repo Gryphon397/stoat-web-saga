@@ -1,101 +1,85 @@
-import { Show } from "solid-js";
-import {
-  TrackLoop,
-  useEnsureParticipant,
-  useIsMuted,
-  useIsSpeaking,
-  useTracks,
-} from "solid-livekit-components";
+import { createEffect, onCleanup } from "solid-js";
 
-import { Track } from "livekit-client";
 import { styled } from "styled-system/jsx";
 
-import { useUser } from "@revolt/markdown/users";
-import { Avatar } from "@revolt/ui/components/design";
-import { Row } from "@revolt/ui/components/layout";
-import { Symbol } from "@revolt/ui/components/utils/Symbol";
+import { Track } from "livekit-client";
 
-import { VoiceCallCardActions } from "./VoiceCallCardActions";
-import { VoiceCallCardStatus } from "./VoiceCallCardStatus";
+import { useVoice } from "@revolt/rtc";
 
+/**
+ * Screenshare preview PiP — shows the local user's own screen share
+ * so they can confirm what's being shared.
+ */
 export function VoiceCallCardPiP() {
-  const tracks = useTracks(
-    [{ source: Track.Source.Microphone, withPlaceholder: true }],
-    { onlySubscribed: false },
-  );
+  const voice = useVoice();
+  let videoRef: HTMLVideoElement | undefined;
 
-  return (
-    <MiniCard>
-      <Row>
-        <TrackLoop tracks={tracks}>{() => <ConnectedUser />}</TrackLoop>
-      </Row>
-      <VoiceCallCardStatus />
-      <VoiceCallCardActions size="xs" />
-    </MiniCard>
-  );
-}
+  createEffect(() => {
+    const room = voice.room();
+    if (!room || !videoRef) return;
 
-function ConnectedUser() {
-  const participant = useEnsureParticipant();
+    const pub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    const track = pub?.track;
 
-  const isMuted = useIsMuted({
-    participant,
-    source: Track.Source.Microphone,
+    if (track?.mediaStreamTrack) {
+      const stream = new MediaStream([track.mediaStreamTrack]);
+      videoRef.srcObject = stream;
+      videoRef.play().catch(() => {});
+    }
+
+    onCleanup(() => {
+      if (videoRef) {
+        videoRef.srcObject = null;
+      }
+    });
   });
 
-  const isSpeaking = useIsSpeaking(participant);
-  const user = useUser(participant.identity);
-
   return (
-    <UserIcon speaking={isSpeaking()}>
-      <Avatar size={24} src={user().avatar} fallback={user().username} />
-      <Show when={isMuted()}>
-        <Symbol>mic_off</Symbol>
-      </Show>
-    </UserIcon>
+    <Preview>
+      <video
+        ref={videoRef}
+        muted
+        style={{
+          width: "100%",
+          height: "100%",
+          "object-fit": "contain",
+          "border-radius": "var(--borderRadius-lg)",
+          background: "#000",
+          display: "block",
+        }}
+      />
+      <Label>Your screen</Label>
+    </Preview>
   );
 }
 
-const UserIcon = styled("div", {
+const Preview = styled("div", {
   base: {
-    display: "grid",
-    width: "24px",
-    height: "24px",
-
-    "& *": {
-      gridArea: "1/1",
-    },
-  },
-  variants: {
-    speaking: {
-      true: {
-        "& svg": {
-          outlineOffset: "1px",
-          outline: "2px solid var(--md-sys-color-primary)",
-          borderRadius: "var(--borderRadius-circle)",
-        },
-      },
-    },
-  },
-});
-
-const MiniCard = styled("div", {
-  base: {
-    userSelect: "none",
-
     pointerEvents: "all",
     width: "100%",
     height: "100%",
-
-    display: "flex",
-    alignItems: "center",
-    flexDirection: "column",
-    justifyContent: "center",
-
-    gap: "var(--gap-md)",
-    padding: "var(--gap-md)",
-
+    position: "relative",
     borderRadius: "var(--borderRadius-lg)",
-    background: "var(--md-sys-color-secondary-container)",
+    overflow: "hidden",
+    background: "#000",
+    boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+});
+
+const Label = styled("div", {
+  base: {
+    position: "absolute",
+    bottom: "6px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    fontSize: "11px",
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.7)",
+    background: "rgba(0,0,0,0.5)",
+    padding: "2px 8px",
+    borderRadius: "999px",
+    pointerEvents: "none",
+    userSelect: "none",
   },
 });

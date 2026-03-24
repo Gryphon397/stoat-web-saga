@@ -48,8 +48,10 @@ ENV VITE_WS_URL=__VITE_WS_URL__
 ENV VITE_MEDIA_URL=__VITE_MEDIA_URL__
 ENV VITE_PROXY_URL=__VITE_PROXY_URL__
 ENV VITE_HCAPTCHA_SITEKEY=__VITE_HCAPTCHA_SITEKEY__
-ENV VITE_GIPHY_KEY=__VITE_GIPHY_KEY__
+ENV VITE_KLIPY_KEY=__VITE_KLIPY_KEY__
 ENV VITE_CFG_ENABLE_VIDEO=__VITE_CFG_ENABLE_VIDEO__
+ENV VITE_CFG_MAX_FILE_SIZE=__VITE_CFG_MAX_FILE_SIZE__
+ENV VITE_PLEX_PROXY_URL=__VITE_PLEX_PROXY_URL__
 ENV BASE_PATH=/
 
 RUN cd packages/client && /build/node_modules/.bin/vite build
@@ -62,8 +64,11 @@ FROM node:24-alpine
 WORKDIR /app
 
 # Copy the server package and install dependencies
-COPY docker/package.json docker/inject.js ./
+COPY docker/package.json docker/inject.js docker/server.js ./
 RUN npm install --omit=dev
+
+# Copy DeepFilterNet3 self-hosted model assets
+COPY docker/df3-assets ./df3-assets
 
 # Copy built static assets stage 1
 COPY --from=builder /build/packages/client/dist ./dist
@@ -76,8 +81,10 @@ ENV VITE_WS_URL=""
 ENV VITE_MEDIA_URL=""
 ENV VITE_PROXY_URL=""
 ENV VITE_HCAPTCHA_SITEKEY=""
-ENV VITE_GIPHY_KEY=""
+ENV VITE_KLIPY_KEY=""
 ENV VITE_CFG_ENABLE_VIDEO=""
+ENV VITE_CFG_MAX_FILE_SIZE=""
+ENV VITE_PLEX_PROXY_URL=""
 ENV REVOLT_PUBLIC_URL=""
 
 CMD ["npm", "start"]

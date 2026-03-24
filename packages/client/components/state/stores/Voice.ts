@@ -36,6 +36,8 @@ export interface TypeVoice {
   soundMute: boolean;
   soundUnmute: boolean;
   soundReceiveMessage: boolean;
+  soundScreenshareStart: boolean;
+  soundScreenshareEnd: boolean;
 }
 
 /**
@@ -86,6 +88,8 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       soundMute: true,
       soundUnmute: true,
       soundReceiveMessage: true,
+      soundScreenshareStart: true,
+      soundScreenshareEnd: true,
     };
   }
 
@@ -221,6 +225,12 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     }
     if (typeof input.soundReceiveMessage === "boolean") {
       data.soundReceiveMessage = input.soundReceiveMessage;
+    }
+    if (typeof input.soundScreenshareStart === "boolean") {
+      data.soundScreenshareStart = input.soundScreenshareStart;
+    }
+    if (typeof input.soundScreenshareEnd === "boolean") {
+      data.soundScreenshareEnd = input.soundScreenshareEnd;
     }
 
     return data;
@@ -635,5 +645,21 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    */
   set soundReceiveMessage(value: boolean) {
     this.set("soundReceiveMessage", value);
+  }
+
+  get soundScreenshareStart(): boolean {
+    return this.get().soundScreenshareStart;
+  }
+
+  set soundScreenshareStart(value: boolean) {
+    this.set("soundScreenshareStart", value);
+  }
+
+  get soundScreenshareEnd(): boolean {
+    return this.get().soundScreenshareEnd;
+  }
+
+  set soundScreenshareEnd(value: boolean) {
+    this.set("soundScreenshareEnd", value);
   }
 }

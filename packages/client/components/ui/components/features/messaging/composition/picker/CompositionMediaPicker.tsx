@@ -43,13 +43,18 @@ interface Props {
   onMessage: (content: string) => void;
 
   /**
+   * Add a file attachment
+   */
+  onFile: (file: File) => void;
+
+  /**
    * Text replacement
    */
   onTextReplacement: (node: string) => void;
 }
 
 export const CompositionMediaPickerContext = createContext(
-  null as unknown as Pick<Props, "onMessage" | "onTextReplacement">,
+  null as unknown as Pick<Props, "onMessage" | "onFile" | "onTextReplacement">,
 );
 
 export function CompositionMediaPicker(props: Props) {

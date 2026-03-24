@@ -485,8 +485,20 @@ function Entry(
             : "normal",
   );
 
+  const handleClick = (e: MouseEvent) => {
+    if (props.channel.isVoice) {
+      // Auto-join voice channel on click (don't rejoin if already in this channel)
+      if (!inCall()) {
+        voice.connect(props.channel);
+      }
+    }
+  };
+
   return (
-    <a href={`/server/${props.channel.serverId}/channel/${props.channel.id}`}>
+    <a
+      href={`/server/${props.channel.serverId}/channel/${props.channel.id}`}
+      onClick={handleClick}
+    >
       <Column gap="sm">
         <MenuButton
           use:floating={props.menuGenerator(props.channel)}

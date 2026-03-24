@@ -1,98 +1,98 @@
 import { createSignal, onCleanup, onMount } from "solid-js";
+import { Room, RoomEvent, Track } from "livekit-client";
 
 export default function Popout() {
   const params = new URLSearchParams(window.location.search);
   const identity = params.get("identity") || "unknown";
   const username = params.get("username") || identity;
+  const livekitUrl = params.get("livekitUrl") || "";
+  const viewerToken = params.get("viewerToken") || "";
 
-  const [volume, setVolume] = createSignal(1);
+  const rawVolume = parseFloat(params.get("volume") || "1");
+  const [volume, setVolume] = createSignal(isNaN(rawVolume) ? 1 : Math.min(1, Math.max(0, rawVolume)));
   const [muted, setMuted] = createSignal(false);
   const [status, setStatus] = createSignal("Connecting...");
 
   let videoEl: HTMLVideoElement | undefined;
   let audioEl: HTMLAudioElement | undefined;
-  let pc: RTCPeerConnection | undefined;
+  let room: Room | undefined;
 
   onMount(async () => {
+    if (!livekitUrl || !viewerToken) {
+      setStatus("Error: missing connection parameters");
+      return;
+    }
+
+    room = new Room();
+
+    room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (participant.identity !== identity) return;
+
+      if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare && videoEl) {
+        track.attach(videoEl);
+        setStatus("");
+      }
+      if (track.kind === Track.Kind.Audio && track.source === Track.Source.ScreenShareAudio && audioEl) {
+        track.attach(audioEl);
+        audioEl.volume = muted() ? 0 : volume();
+      }
+    });
+
+    room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+      if (participant.identity !== identity) return;
+      track.detach();
+      if (track.source === Track.Source.ScreenShare) {
+        setStatus("Stream ended");
+        setTimeout(() => window.close(), 2000);
+      }
+    });
+
+    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (participant.identity === identity) {
+        setStatus("Presenter left");
+        setTimeout(() => window.close(), 2000);
+      }
+    });
+
+    room.on(RoomEvent.Disconnected, () => {
+      setStatus("Disconnected");
+    });
+
     try {
-      if (!window.stoatPopout) {
-        setStatus("Error: not running in Electron");
-        return;
-      }
+      await room.connect(livekitUrl, viewerToken, { autoSubscribe: true });
 
-      const offerSdp = await window.stoatPopout.getOffer(identity);
-      if (!offerSdp) {
-        setStatus("Error: no offer received");
-        return;
-      }
-
-      setStatus("Setting up connection...");
-      pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
-
-      pc.ontrack = (event) => {
-        console.log("[Popout] Received track:", event.track.kind, event.track.readyState);
-        if (event.track.kind === "video" && videoEl) {
-          videoEl.srcObject = new MediaStream([event.track]);
-          videoEl.play().catch(() => {});
-        }
-        if (event.track.kind === "audio" && audioEl) {
-          audioEl.srcObject = new MediaStream([event.track]);
-          audioEl.volume = volume();
-          audioEl.muted = muted();
-          audioEl.play().catch(() => {});
-        }
-      };
-
-      pc.oniceconnectionstatechange = () => {
-        const s = pc?.iceConnectionState;
-        console.log("[Popout] ICE state:", s);
-        if (s === "connected" || s === "completed") {
-          setStatus("");
-        } else if (s === "disconnected" || s === "failed") {
-          setStatus("Connection lost");
-          setTimeout(() => window.close(), 2000);
-        }
-      };
-
-      await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      await new Promise<void>((resolve) => {
-        if (pc!.iceGatheringState === "complete") { resolve(); return; }
-        const timeout = setTimeout(resolve, 5000);
-        pc!.addEventListener("icegatheringstatechange", () => {
-          if (pc!.iceGatheringState === "complete") {
-            clearTimeout(timeout);
-            resolve();
+      // Subscribe to any already-published screenshare tracks from this participant
+      const target = room.getParticipantByIdentity(identity);
+      if (target) {
+        for (const pub of target.trackPublications.values()) {
+          if (
+            (pub.source === Track.Source.ScreenShare ||
+              pub.source === Track.Source.ScreenShareAudio) &&
+            !pub.isSubscribed
+          ) {
+            pub.setSubscribed(true);
           }
-        });
-      });
-
-      const fullAnswer = pc.localDescription!.sdp;
-      await window.stoatPopout.sendAnswer(identity, fullAnswer);
-      console.log("[Popout] Answer sent, waiting for media...");
+        }
+      }
     } catch (err) {
-      console.error("[Popout] Setup failed:", err);
+      console.error("[Popout] LiveKit connect failed:", err);
       setStatus("Error: " + (err as Error).message);
     }
   });
 
   onCleanup(() => {
-    pc?.close();
+    room?.disconnect();
   });
 
   const handleVolume = (val: number) => {
     setVolume(val);
-    if (audioEl) audioEl.volume = val;
+    if (audioEl && !muted()) audioEl.volume = val;
   };
 
   const toggleMute = () => {
     const next = !muted();
     setMuted(next);
-    if (audioEl) audioEl.muted = next;
+    if (audioEl) audioEl.volume = next ? 0 : volume();
   };
 
   return (

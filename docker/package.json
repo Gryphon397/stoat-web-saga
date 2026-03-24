@@ -3,10 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "start": "node inject.js && sirv dist_injected --port 5000 --cors --single --host"
+    "start": "node server.js"
   },
   "dependencies": {
-    "sirv-cli": "^3.0.1"
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.3"
   },
   "engines": {
     "node": ">=18"

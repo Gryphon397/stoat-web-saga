@@ -13,6 +13,7 @@ import { styled } from "styled-system/jsx";
 import { decodeTime, ulid } from "ulid";
 
 import { DraftMessages, Messages } from "@revolt/app";
+import { VoiceChannelContent } from "../VoiceChannelPage";
 import { useClient } from "@revolt/client";
 import { Keybind, KeybindAction, createKeybind } from "@revolt/keybinds";
 import { useNavigate, useSmartParams } from "@revolt/routing";
@@ -26,8 +27,6 @@ import {
   TypingIndicator,
   main,
 } from "@revolt/ui";
-import { VoiceChannelCallCardMount } from "@revolt/ui/components/features/voice/callCard/VoiceCallCard";
-
 import { ChannelHeader } from "../ChannelHeader";
 import { ChannelPageProps } from "../ChannelPage";
 
@@ -69,9 +68,6 @@ export function TextChannel(props: ChannelPageProps) {
    * @returns Message Id
    */
   const highlightMessageId = () => params().messageId;
-
-  const canConnect = () =>
-    props.channel.isVoice && props.channel.havePermission("Connect");
 
   // Get a reference to the message box's load latest function
   let jumpToBottomRef: ((nearby?: string) => void) | undefined;
@@ -156,63 +152,65 @@ export function TextChannel(props: ChannelPageProps) {
     ),
   );
 
+  const isVoice = () =>
+    (props.channel.isVoice && props.channel.type === "TextChannel") ||
+    props.channel.type === "VoiceChannel";
+
   return (
     <>
       <Header placement="primary">
         <ChannelHeader
           channel={props.channel}
-          sidebarState={sidebarState}
-          setSidebarState={setSidebarState}
+          sidebarState={isVoice() ? undefined : sidebarState}
+          setSidebarState={isVoice() ? undefined : setSidebarState}
         />
       </Header>
       <Content>
-        <main class={main()}>
-          <Show
-            when={canConnect()}
-            fallback={
-              <BelowFloatingHeader>
-                <div>
-                  <NewMessages
-                    lastId={lastId}
-                    jumpBack={() => navigate(lastId()!)}
-                    dismiss={() => setLastId()}
-                  />
-                </div>
-              </BelowFloatingHeader>
-            }
-          >
-            <VoiceChannelCallCardMount channel={props.channel} />
-          </Show>
+        <Show when={isVoice()} fallback={
+          <main class={main()}>
+            <BelowFloatingHeader>
+              <div>
+                <NewMessages
+                  lastId={lastId}
+                  jumpBack={() => navigate(lastId()!)}
+                  dismiss={() => setLastId()}
+                />
+              </div>
+            </BelowFloatingHeader>
 
-          <Messages
-            channel={props.channel}
-            lastReadId={lastId}
-            pendingMessages={(pendingProps) => (
-              <DraftMessages
-                channel={props.channel}
-                tail={pendingProps.tail}
-                sentIds={pendingProps.ids}
-              />
-            )}
-            typingIndicator={
-              <TypingIndicator
-                users={props.channel.typing}
-                ownId={client().user!.id}
-              />
-            }
-            highlightedMessageId={highlightMessageId}
-            clearHighlightedMessage={() => navigate(".")}
-            atEndRef={(ref) => (atEndRef = ref)}
-            jumpToBottomRef={(ref) => (jumpToBottomRef = ref)}
-          />
+            <Messages
+              channel={props.channel}
+              lastReadId={lastId}
+              pendingMessages={(pendingProps) => (
+                <DraftMessages
+                  channel={props.channel}
+                  tail={pendingProps.tail}
+                  sentIds={pendingProps.ids}
+                />
+              )}
+              typingIndicator={
+                <TypingIndicator
+                  users={props.channel.typing}
+                  ownId={client().user!.id}
+                />
+              }
+              highlightedMessageId={highlightMessageId}
+              clearHighlightedMessage={() => navigate(".")}
+              atEndRef={(ref) => (atEndRef = ref)}
+              jumpToBottomRef={(ref) => (jumpToBottomRef = ref)}
+            />
 
-          <MessageComposition
-            channel={props.channel}
-            onMessageSend={() => jumpToBottomRef?.()}
-          />
-        </main>
+            <MessageComposition
+              channel={props.channel}
+              onMessageSend={() => jumpToBottomRef?.()}
+            />
+          </main>
+        }>
+          <VoiceChannelContent channel={props.channel} />
+        </Show>
         <Show
           when={
+            isVoice() ||
             (state.layout.getSectionState(
               LAYOUT_SECTIONS.MEMBER_SIDEBAR,
               true,

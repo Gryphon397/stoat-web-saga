@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createSignal } from "solid-js";
+import { Match, Show, Switch, createSignal, onMount } from "solid-js";
 import { Motion, Presence } from "solid-motionone";
 
 import { css } from "styled-system/css";
@@ -23,6 +23,12 @@ export function Titlebar() {
   );
   const { lifecycle } = useClientLifecycle();
 
+  onMount(() => {
+    if (window.native?.onMaximiseChanged) {
+      window.native.onMaximiseChanged((maximised) => setIsMaximised(maximised));
+    }
+  });
+
   function isDisconnected() {
     return [
       State.Connecting,
@@ -34,7 +40,6 @@ export function Titlebar() {
 
   function maximise() {
     window.native.maximise();
-    setIsMaximised((t) => !t);
   }
 
   return (

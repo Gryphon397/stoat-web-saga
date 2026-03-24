@@ -56,6 +56,10 @@ export function UserProfileEditor(props: Props) {
 
   const [initialBio, setInitialBio] = createSignal<readonly [string]>();
 
+  // Track the avatar URL we just saved so onReset can show it immediately
+  // rather than the stale value before the WebSocket UserUpdate arrives.
+  let pendingAvatarUrl: string | null = null;
+
   // once profile data is loaded, copy it into the form
   createEffect(
     on(
@@ -75,7 +79,8 @@ export function UserProfileEditor(props: Props) {
 
   function onReset() {
     editGroup.controls.displayName.setValue(props.user.displayName);
-    editGroup.controls.avatar.setValue(props.user.animatedAvatarURL);
+    editGroup.controls.avatar.setValue(pendingAvatarUrl ?? props.user.animatedAvatarURL);
+    pendingAvatarUrl = null;
 
     if (profile.data) {
       editGroup.controls.banner.setValue(
@@ -95,6 +100,8 @@ export function UserProfileEditor(props: Props) {
       changes.display_name = editGroup.controls.displayName.value.trim();
     }
 
+    let newAvatarUrl: string | null = null;
+
     if (editGroup.controls.avatar.isDirty) {
       if (!editGroup.controls.avatar.value) {
         changes.remove!.push("Avatar");
@@ -104,6 +111,7 @@ export function UserProfileEditor(props: Props) {
           editGroup.controls.avatar.value[0],
           CONFIGURATION.DEFAULT_MEDIA_URL,
         );
+        newAvatarUrl = `${CONFIGURATION.DEFAULT_MEDIA_URL}/avatars/${changes.avatar}`;
       }
     }
 
@@ -133,6 +141,14 @@ export function UserProfileEditor(props: Props) {
       } else {
         newBannerUrl = editGroup.controls.banner.value;
       }
+    }
+
+    // Stash the new URL before edit() so onReset (called by useSubmitHandler
+    // after onSubmit) shows the correct avatar instead of the stale store value.
+    if (newAvatarUrl !== null) {
+      pendingAvatarUrl = newAvatarUrl;
+    } else if (changes.remove?.includes("Avatar")) {
+      pendingAvatarUrl = props.user.defaultAvatarURL;
     }
 
     await props.user.edit(changes);

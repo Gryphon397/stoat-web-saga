@@ -28,6 +28,7 @@ export interface ChannelPageProps {
 
 const TEXT_CHANNEL_TYPES: Channel["type"][] = [
   "TextChannel",
+  "VoiceChannel",
   "DirectMessage",
   "Group",
   "SavedMessages",
@@ -57,11 +58,6 @@ export const ChannelPage: Component = () => {
             <TextChannel channel={channel()} />
           </AgeGate>
         </Match>
-        {/* <Match when={channel()!.type === "VoiceChannel"}>
-            <Header placement="primary">
-              <ChannelHeader channel={channel()} />
-            </Header>
-          </Match> */}
       </Switch>
     </Base>
   );

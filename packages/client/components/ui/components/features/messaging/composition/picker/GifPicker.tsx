@@ -13,17 +13,18 @@ import { VirtualContainer } from "@minht11/solid-virtual-container";
 import { useQuery } from "@tanstack/solid-query";
 import { styled } from "styled-system/jsx";
 
-import env from "@revolt/common/lib/env";
 import {
   CircularProgress,
   TextField,
   typography,
 } from "@revolt/ui/components/design";
 
+import { useClient } from "@revolt/client";
+
 import { CompositionMediaPickerContext } from "./CompositionMediaPicker";
 
-const GIPHY_BASE = "https://api.giphy.com/v1/gifs";
-const RATING = "pg";
+const KLIPY_BASE = "/gif-api";
+const CONTENT_FILTER = "high";
 
 type GifCategory = { title: string; image: string };
 
@@ -32,12 +33,12 @@ type GifResult = {
   media_formats: Record<"webm" | "tinywebm", { url: string }>;
 };
 
-function giphyGifToResult(gif: any): GifResult {
+function klipyGifToResult(gif: any): GifResult {
   return {
-    url: gif.images?.original?.url ?? gif.url,
+    url: gif.file?.hd?.gif?.url ?? gif.file?.md?.gif?.url ?? "",
     media_formats: {
-      webm: { url: gif.images?.original?.mp4 ?? "" },
-      tinywebm: { url: gif.images?.fixed_width_small?.mp4 ?? gif.images?.fixed_width?.mp4 ?? "" },
+      webm: { url: gif.file?.md?.mp4?.url ?? "" },
+      tinywebm: { url: gif.file?.sm?.mp4?.url ?? gif.file?.xs?.mp4?.url ?? "" },
     },
   };
 }
@@ -46,33 +47,46 @@ const FilterContext = createContext<(value: string) => void>();
 
 export function GifPicker() {
   const [filter, setFilter] = createSignal("");
+  const [debouncedFilter, setDebouncedFilter] = createSignal("");
+  let debounceTimer: ReturnType<typeof setTimeout>;
 
-  const filterLowercase = () => filter().toLowerCase();
+  function onInput(value: string) {
+    setFilter(value);
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => setDebouncedFilter(value.toLowerCase()), 300);
+  }
+
+  // Used by category clicks — bypasses debounce for instant navigation
+  function setFilterImmediate(value: string) {
+    clearTimeout(debounceTimer);
+    setFilter(value);
+    setDebouncedFilter(value.toLowerCase());
+  }
 
   return (
     <Stack>
       <TextField
         autoFocus
         variant="filled"
-        placeholder="Search for GIFs..."
+        placeholder="Search KLIPY..."
         value={filter()}
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
         }}
-        onChange={(e) => setFilter(e.currentTarget.value)}
+        onInput={(e) => onInput(e.currentTarget.value)}
       />
       <Suspense fallback={<CircularProgress />}>
         <Switch
           fallback={
-            <FilterContext.Provider value={setFilter}>
+            <FilterContext.Provider value={setFilterImmediate}>
               <Categories />
             </FilterContext.Provider>
           }
         >
-          <Match when={filterLowercase()}>
-            <GifSearch query={filterLowercase()} />
+          <Match when={debouncedFilter()}>
+            <GifSearch query={debouncedFilter()} />
           </Match>
         </Switch>
       </Suspense>
@@ -107,17 +121,17 @@ type CategoryItem =
 function Categories() {
   let targetElement!: HTMLDivElement;
 
-  const key = env.GIPHY_API_KEY;
-
   const trendingCategories = useQuery<GifCategory[]>(() => ({
     queryKey: ["trendingGifCategories"],
     queryFn: () =>
-      fetch(`${GIPHY_BASE}/categories?api_key=${key}&rating=${RATING}`)
+      fetch(
+        `${KLIPY_BASE}/gifs/categories?content_filter=${CONTENT_FILTER}`,
+      )
         .then((r) => r.json())
         .then((resp) =>
-          (resp.data ?? []).map((cat: any) => ({
-            title: cat.name,
-            image: cat.gif?.images?.fixed_width?.url ?? "",
+          (resp.data?.categories ?? []).map((cat: any) => ({
+            title: cat.query ?? cat.category ?? "",
+            image: cat.preview_url ?? "",
           })),
         ),
     refetchOnReconnect: false,
@@ -127,9 +141,13 @@ function Categories() {
   const trendingGif = useQuery<GifResult | null>(() => ({
     queryKey: ["trendingGif1"],
     queryFn: () =>
-      fetch(`${GIPHY_BASE}/trending?api_key=${key}&limit=1&rating=${RATING}`)
+      fetch(
+        `${KLIPY_BASE}/gifs/trending?per_page=1&content_filter=${CONTENT_FILTER}`,
+      )
         .then((r) => r.json())
-        .then((resp) => (resp.data?.[0] ? giphyGifToResult(resp.data[0]) : null)),
+        .then((resp) =>
+          resp.data?.data?.[0] ? klipyGifToResult(resp.data.data[0]) : null,
+        ),
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
     initialData: null,
@@ -218,19 +236,17 @@ const Category = styled("div", {
 function GifSearch(props: { query: string }) {
   let targetElement!: HTMLDivElement;
 
-  const key = env.GIPHY_API_KEY;
-
   const search = useQuery<GifResult[]>(() => ({
     queryKey: ["gifs", props.query],
     queryFn: () => {
       const endpoint =
         props.query === "trending"
-          ? `trending?api_key=${key}&limit=25&rating=${RATING}`
-          : `search?api_key=${key}&q=${encodeURIComponent(props.query)}&limit=25&rating=${RATING}`;
+          ? `trending?per_page=25&content_filter=${CONTENT_FILTER}`
+          : `search?q=${encodeURIComponent(props.query)}&per_page=25&content_filter=${CONTENT_FILTER}`;
 
-      return fetch(`${GIPHY_BASE}/${endpoint}`)
+      return fetch(`${KLIPY_BASE}/gifs/${endpoint}`)
         .then((r) => r.json())
-        .then((resp) => (resp.data ?? []).map(giphyGifToResult));
+        .then((resp) => (resp.data?.data ?? []).map(klipyGifToResult));
     },
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -258,6 +274,53 @@ const GifItem = (props: {
   item: GifResult;
 }) => {
   const { onMessage } = useContext(CompositionMediaPickerContext);
+  const client = useClient();
+
+  async function handleClick() {
+    // Prefer the smaller MP4 video format; fall back to GIF URL
+    const gifUrl = props.item.media_formats.webm.url || props.item.url;
+    const isVideo = gifUrl.includes(".mp4") || gifUrl.includes(".webm");
+    const ext = isVideo ? (gifUrl.includes(".webm") ? "webm" : "mp4") : "gif";
+    const mime = isVideo ? (ext === "webm" ? "video/webm" : "video/mp4") : "image/gif";
+
+    try {
+      // Download via server-side proxy to avoid CORS issues with Klipy CDN
+      const proxyUrl = `/gif-proxy?url=${encodeURIComponent(gifUrl)}`;
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) {
+        onMessage(gifUrl);
+        return;
+      }
+
+      const blob = await resp.blob();
+      const file = new File([blob], `gif.${ext}`, { type: mime });
+
+      // Upload to Autumn (file server) directly — Autumn already allows CORS from the app origin
+      const autumnUrl = client().configuration!.features.autumn.url;
+      const body = new FormData();
+      body.set("file", file);
+
+      const [authHeader, authHeaderValue] = client().authenticationHeader;
+      const uploadResp = await fetch(`${autumnUrl}/attachments`, {
+        method: "POST",
+        headers: { [authHeader]: authHeaderValue },
+        body,
+      });
+
+      if (!uploadResp.ok) {
+        onMessage(gifUrl);
+        return;
+      }
+
+      const { id: attachmentId } = await uploadResp.json();
+
+      // Send as message with attachment — use special prefix so
+      // sendMessage knows to send as attachment, not text
+      onMessage(`\x00attachment:${attachmentId}`);
+    } catch {
+      onMessage(gifUrl);
+    }
+  }
 
   return (
     <Gif
@@ -269,7 +332,7 @@ const GifItem = (props: {
       style={props.style as string}
       tabIndex={props.tabIndex}
       src={props.item.media_formats.tinywebm.url}
-      onClick={() => onMessage(props.item.url)}
+      onClick={handleClick}
     />
   );
 };

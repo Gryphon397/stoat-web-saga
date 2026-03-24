@@ -237,6 +237,46 @@ export function NotificationSoundsSettings() {
           >
             <Trans id="notifications.sounds.receiveMessage">Receive Message</Trans>
           </CategoryButton>
+
+          <CategoryButton
+            icon="blank"
+            disabled={individualSoundsDisabled()}
+            action={
+              <div style={{ "pointer-events": "none" }}>
+                <Checkbox
+                  checked={state.voice.soundScreenshareStart}
+                  disabled={individualSoundsDisabled()}
+                />
+              </div>
+            }
+            onClick={() => {
+              if (!individualSoundsDisabled()) {
+                state.voice.soundScreenshareStart = !state.voice.soundScreenshareStart;
+              }
+            }}
+          >
+            Screenshare Start
+          </CategoryButton>
+
+          <CategoryButton
+            icon="blank"
+            disabled={individualSoundsDisabled()}
+            action={
+              <div style={{ "pointer-events": "none" }}>
+                <Checkbox
+                  checked={state.voice.soundScreenshareEnd}
+                  disabled={individualSoundsDisabled()}
+                />
+              </div>
+            }
+            onClick={() => {
+              if (!individualSoundsDisabled()) {
+                state.voice.soundScreenshareEnd = !state.voice.soundScreenshareEnd;
+              }
+            }}
+          >
+            Screenshare End
+          </CategoryButton>
         </CategoryButton.Group>
       </Column>
     </Column>

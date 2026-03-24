@@ -19,8 +19,10 @@ const REPLACEMENTS = {
   __VITE_MEDIA_URL__: process.env.VITE_MEDIA_URL || "",
   __VITE_PROXY_URL__: process.env.VITE_PROXY_URL || "",
   __VITE_HCAPTCHA_SITEKEY__: process.env.VITE_HCAPTCHA_SITEKEY || "",
-  __VITE_GIPHY_KEY__: process.env.VITE_GIPHY_KEY || "",
+  __VITE_KLIPY_KEY__: process.env.VITE_KLIPY_KEY || "",
   __VITE_CFG_ENABLE_VIDEO__: process.env.VITE_CFG_ENABLE_VIDEO || "",
+  __VITE_CFG_MAX_FILE_SIZE__: process.env.VITE_CFG_MAX_FILE_SIZE || "",
+  __VITE_PLEX_PROXY_URL__: process.env.VITE_PLEX_PROXY_URL || "",
 };
 
 console.log("Preparing injected build...");

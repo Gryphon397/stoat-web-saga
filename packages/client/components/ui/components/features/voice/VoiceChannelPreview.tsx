@@ -84,6 +84,16 @@ function ParticipantLive() {
 
   const isSpeaking = useIsSpeaking(participant);
 
+  const screenShareTracks = useTracks(
+    [{ source: Track.Source.ScreenShare, withPlaceholder: false }],
+    { onlySubscribed: false },
+  );
+
+  const isScreensharing = () =>
+    screenShareTracks().some(
+      (t) => t.participant.identity === participant.identity,
+    );
+
   return (
     <CommonUser
       userId={participant.identity}
@@ -91,7 +101,7 @@ function ParticipantLive() {
       muted={isMuted()}
       deafened={false}
       camera={false}
-      screenshare={false}
+      screenshare={isScreensharing()}
       isLive
     />
   );
@@ -135,29 +145,34 @@ function CommonUser(props: {
   const user = useUser(() => rest.userId);
 
   return (
-    <div
-      class={previewUser({ speaking: rest.speaking })}
-      use:floating={{
-        userCard: {
-          user: user().user!,
-          member: user().member,
-        },
-        contextMenu: () => (
-          <UserContextMenu
-            user={user().user!}
-            member={user().member}
-            inVoice={rest.isLive}
-          />
-        ),
-      }}
-    >
-      <Ripple />
-      <Avatar size={24} src={user().avatar} fallback={user().username} />{" "}
-      <PreviewUsername>{user().username}</PreviewUsername>
-      <Row gap="sm">
-        <VoiceStatefulUserIcons {...iconProps} userId={rest.userId} />
-      </Row>
-    </div>
+    <Show when={user().user}>
+      <div
+        class={previewUser({ speaking: rest.speaking })}
+        use:floating={{
+          userCard: {
+            user: user().user!,
+            member: user().member,
+          },
+          contextMenu: () => (
+            <UserContextMenu
+              user={user().user!}
+              member={user().member}
+              inVoice={rest.isLive}
+            />
+          ),
+        }}
+      >
+        <Ripple />
+        <Avatar size={24} src={user().avatar} fallback={user().username} />{" "}
+        <PreviewUsername>{user().username}</PreviewUsername>
+        <Row gap="sm">
+          <Show when={iconProps.screenshare}>
+            <LiveBadge>LIVE</LiveBadge>
+          </Show>
+          <VoiceStatefulUserIcons {...iconProps} userId={rest.userId} />
+        </Row>
+      </div>
+    </Show>
   );
 }
 
@@ -209,5 +224,19 @@ const PreviewUsername = styled("span", {
     overflow: "hidden",
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
+  },
+});
+
+const LiveBadge = styled("span", {
+  base: {
+    background: "#e53935",
+    color: "#ffffff",
+    fontSize: "10px",
+    fontWeight: "bold",
+    padding: "1px 4px",
+    borderRadius: "var(--borderRadius-sm)",
+    letterSpacing: "0.5px",
+    lineHeight: "1.4",
+    flexShrink: 0,
   },
 });

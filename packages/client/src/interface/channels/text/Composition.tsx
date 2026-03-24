@@ -164,6 +164,12 @@ export function MessageComposition(props: Props) {
     props.onMessageSend?.();
 
     if (typeof useContent === "string") {
+      // Handle GIF picker attachment uploads (prefixed with \x00attachment:)
+      if (useContent.startsWith("\x00attachment:")) {
+        const attachmentId = useContent.slice("\x00attachment:".length);
+        return props.channel.sendMessage({ attachments: [attachmentId] });
+      }
+
       const currentDraft = draft();
       if (
         currentDraft?.replies?.length &&
@@ -341,6 +347,7 @@ export function MessageComposition(props: Props) {
         actionsEnd={
           <CompositionMediaPicker
             onMessage={sendMessage}
+            onFile={(file) => onFiles([file])}
             onTextReplacement={(text) => setNodeReplacement([text])}
           >
             {(triggerProps) => (

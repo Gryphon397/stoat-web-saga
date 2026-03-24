@@ -17,6 +17,9 @@ import { CircularProgress } from "@revolt/ui";
 
 import { Sidebar } from "./interface/Sidebar";
 
+const BUILD = 1;
+console.info(`[stoat-dev] build ${BUILD}`);
+
 /**
  * Application layout
  */

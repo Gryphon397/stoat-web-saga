@@ -66,16 +66,46 @@ export function Attachment(props: { file: File; message?: Message }) {
           <Show when={props.file.isSpoiler}>
             <Spoiler contentType="Video" />
           </Show>
-          <video
-            controls
-            preload="metadata"
-            src={props.file.originalUrl}
-            use:floating={{
-              contextMenu: () => (
-                <MessageContextMenu message={props.message} file={props.file} />
-              ),
-            }}
-          />
+          <Switch
+            fallback={
+              <video
+                controls
+                preload="metadata"
+                src={props.file.originalUrl}
+                use:floating={{
+                  contextMenu: () => (
+                    <MessageContextMenu
+                      message={props.message}
+                      file={props.file}
+                    />
+                  ),
+                }}
+              />
+            }
+          >
+            <Match
+              when={
+                props.file.filename === "gif.mp4" ||
+                props.file.filename === "gif.webm"
+              }
+            >
+              <video
+                autoplay
+                muted
+                loop
+                preload="auto"
+                src={props.file.originalUrl}
+                use:floating={{
+                  contextMenu: () => (
+                    <MessageContextMenu
+                      message={props.message}
+                      file={props.file}
+                    />
+                  ),
+                }}
+              />
+            </Match>
+          </Switch>
         </SizedContent>
       </Match>
       <Match when={props.file.metadata.type === "Audio"}>

@@ -45,9 +45,9 @@ export default {
     (import.meta.env.VITE_PROXY_URL as string) ??
     "https://proxy.stoatusercontent.com",
   /**
-   * Giphy API key for GIF search.
+   * Klipy API key for GIF search.
    */
-  GIPHY_API_KEY: import.meta.env.VITE_GIPHY_KEY as string | undefined,
+  KLIPY_API_KEY: import.meta.env.VITE_KLIPY_KEY as string | undefined,
   /**
    * hCaptcha site key to use if enabled
    */

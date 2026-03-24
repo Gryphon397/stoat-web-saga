@@ -10,16 +10,20 @@ type SoundName =
   | "someone_left"
   | "mute"
   | "unmute"
-  | "receive_message";
+  | "receive_message"
+  | "screenshare_start"
+  | "screenshare_end";
 
 const SOUND_FILES: Record<SoundName, string> = {
-  join_call: "/assets/audio/join_call.wav",
-  leave_call: "/assets/audio/leave_call.wav",
-  someone_joined: "/assets/audio/someone_joined.wav",
-  someone_left: "/assets/audio/someone_left.wav",
-  mute: "/assets/audio/mute.wav",
-  unmute: "/assets/audio/unmute.wav",
-  receive_message: "/assets/audio/receive_message.wav",
+  join_call: "/assets/audio/join_call.mp3",
+  leave_call: "/assets/audio/leave_call.mp3",
+  someone_joined: "/assets/audio/someone_joined.mp3",
+  someone_left: "/assets/audio/someone_left.mp3",
+  mute: "/assets/audio/mute.mp3",
+  unmute: "/assets/audio/unmute.mp3",
+  receive_message: "/assets/audio/receive_message.mp3",
+  screenshare_start: "/assets/audio/screenshare_start.mp3",
+  screenshare_end: "/assets/audio/screenshare_end.mp3",
 };
 
 class VoiceNotificationManager {
@@ -93,6 +97,8 @@ class VoiceNotificationManager {
     mute: true,
     unmute: true,
     receive_message: true,
+    screenshare_start: true,
+    screenshare_end: true,
   };
 
   /**
@@ -187,6 +193,16 @@ class VoiceNotificationManager {
   /** Received a message notification */
   playMessageReceived(): void {
     this.playSound("receive_message");
+  }
+
+  /** Local user started screensharing */
+  playScreenshareStart(): void {
+    this.playSound("screenshare_start");
+  }
+
+  /** Local user stopped screensharing */
+  playScreenshareEnd(): void {
+    this.playSound("screenshare_end");
   }
 
   setEnabled(enabled: boolean): void {

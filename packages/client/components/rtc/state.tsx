@@ -13,8 +13,8 @@ import {
 } from "solid-js";
 import { RoomContext } from "solid-livekit-components";
 
-import { Room, VideoPresets } from "livekit-client";
-import { DenoiseTrackProcessor } from "livekit-rnnoise-processor";
+import { AudioCaptureOptions, LocalAudioTrack, Room, Track, VideoPresets } from "livekit-client";
+import { DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
 import { voiceNotifications } from "./VoiceNotifications";
 
 const debugLog = (prefix: string, ...args: unknown[]) => {
@@ -34,6 +34,15 @@ declare global {
       ) => void;
       selectSource: (id: string) => void;
       cancel: () => void;
+      onWindowSelected: (callback: (sourceId: string) => void) => void;
+    };
+    appAudioCapture?: {
+      start: (sourceId: string) => Promise<boolean>;
+      stop: () => Promise<void>;
+      onData: (callback: (chunk: Uint8Array) => void) => void;
+      offData: (callback: (chunk: Uint8Array) => void) => void;
+      onStopped: (callback: () => void) => void;
+      offStopped: (callback: () => void) => void;
     };
   }
 }
@@ -45,15 +54,12 @@ declare global {
       open: (params: {
         identity: string;
         username: string;
-        offerSdp: string;
+        livekitUrl: string;
+        viewerToken: string;
+        volume?: number;
       }) => Promise<void>;
       close: (identity: string) => Promise<void>;
       notifyMainDisconnected: () => Promise<void>;
-      getOffer: (identity: string) => Promise<string | null>;
-      sendAnswer: (identity: string, answerSdp: string) => Promise<void>;
-      onAnswer: (
-        callback: (identity: string, answerSdp: string) => void,
-      ) => () => void;
       onPopoutClosed: (callback: (identity: string) => void) => () => void;
     };
   }
@@ -114,6 +120,47 @@ type State =
   | "CONNECTED"
   | "RECONNECTING";
 
+// AudioWorklet processor for per-process audio capture (inline blob URL)
+const pcmFeederWorkletCode = `
+class PcmFeederProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._buffer = [];
+    this._readOffset = 0;
+    this.port.onmessage = (e) => { this._buffer.push(e.data); };
+  }
+  process(inputs, outputs) {
+    const out = outputs[0];
+    if (!out || out.length < 2) return true;
+    const L = out[0], R = out[1];
+    for (let i = 0; i < L.length; i++) {
+      while (this._buffer.length > 0 && this._readOffset >= this._buffer[0].length) {
+        this._buffer.shift();
+        this._readOffset = 0;
+      }
+      if (this._buffer.length > 0) {
+        L[i] = this._buffer[0][this._readOffset] / 32768;
+        R[i] = this._buffer[0][this._readOffset + 1] / 32768;
+        this._readOffset += 2;
+      } else {
+        L[i] = 0; R[i] = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("pcm-feeder", PcmFeederProcessor);
+`;
+let pcmFeederWorkletUrl: string | null = null;
+function getPcmFeederWorkletUrl(): string {
+  if (!pcmFeederWorkletUrl) {
+    pcmFeederWorkletUrl = URL.createObjectURL(
+      new Blob([pcmFeederWorkletCode], { type: "application/javascript" }),
+    );
+  }
+  return pcmFeederWorkletUrl;
+}
+
 class Voice {
   #settings: VoiceSettings;
 
@@ -137,6 +184,16 @@ class Voice {
 
   screenshare: Accessor<boolean>;
   #setScreenshare: Setter<boolean>;
+
+  #livekitUrl = "";
+  get livekitUrl() { return this.#livekitUrl; }
+
+  // Per-process audio capture state
+  #appAudioCtx: AudioContext | null = null;
+  #appAudioWorklet: AudioWorkletNode | null = null;
+  #appAudioDestination: MediaStreamAudioDestinationNode | null = null;
+  #appAudioDataHandler: ((chunk: Uint8Array) => void) | null = null;
+  #appAudioSourceId: string | null = null;
 
   constructor(voiceSettings: VoiceSettings) {
     this.#settings = voiceSettings;
@@ -176,10 +233,13 @@ class Voice {
 
     const room = new Room({
       activeSpeakerInterval: 100,
+      dynacast: true,
       audioCaptureDefaults: {
         deviceId: this.#settings.preferredAudioInputDevice,
-        echoCancellation: this.#settings.echoCancellation,
-        noiseSuppression: this.#settings.noiseSupression,
+        // Disable browser EC when DF3 is active — the two algorithms
+        // running in series produce static artifacts.
+        echoCancellation: this.#settings.noiseSupression ? false : (this.#settings.echoCancellation ?? true),
+        noiseSuppression: false, // DF3 handles noise suppression via setProcessor
       },
       videoCaptureDefaults: {
         resolution: VideoPresets.h1080.resolution,
@@ -211,10 +271,18 @@ class Voice {
     room.addListener("connected", () => {
       this.#setState("CONNECTED");
       if (this.speakingPermission)
-        room.localParticipant.setMicrophoneEnabled(true).then((track) => {
+        room.localParticipant.setMicrophoneEnabled(true).then(async (track) => {
           this.#setMicrophone(typeof track !== "undefined");
-          if (this.#settings.rnnoise)
-            track?.audioTrack?.setProcessor(new DenoiseTrackProcessor());
+          if (track?.audioTrack && this.#settings.noiseSupression) {
+            try {
+              await track.audioTrack.setProcessor(
+                new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" } }),
+              );
+              console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
+            } catch (e) {
+              console.warn("[Voice] ❌ DeepFilterNet3 failed to start:", e);
+            }
+          }
         });
       debugLog("PTT-WEB", "Room connected");
       this.#setState("CONNECTED");
@@ -225,6 +293,15 @@ class Voice {
     room.addListener("disconnected", () => {
       debugLog("PTT-WEB", "Room disconnected");
       this.#setState("DISCONNECTED");
+    });
+
+    // When the shared window closes, LiveKit unpublishes the track automatically.
+    // Sync our screenshare state so the share UI clears.
+    room.addListener("localTrackUnpublished", (publication) => {
+      if (publication.source === Track.Source.ScreenShare) {
+        this.#setScreenshare(false);
+        this.#stopAppAudioCapture();
+      }
     });
 
     if (!auth) {
@@ -243,6 +320,7 @@ class Voice {
       auth = await channel.joinCall(voiceServer);
     }
 
+    this.#livekitUrl = auth.url;
     debugLog("PTT-WEB", "Connecting to room...");
     await room.connect(auth.url, auth.token, {
       autoSubscribe: false,
@@ -267,9 +345,50 @@ class Voice {
     }
   }
 
+  async applyMicConstraints() {
+    const room = this.room();
+    if (!room) return;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+    const track = pub?.track as LocalAudioTrack | undefined;
+    if (!track) return;
+
+    const nsEnabled = this.#settings.noiseSupression ?? true;
+    const ecEnabled = this.#settings.echoCancellation ?? true;
+
+    try {
+      // Disable browser EC when DF3 is active — the two algorithms
+      // running in series produce static artifacts.
+      const options: AudioCaptureOptions = {
+        noiseSuppression: false,
+        echoCancellation: nsEnabled ? false : ecEnabled,
+        deviceId: this.#settings.preferredAudioInputDevice,
+      };
+      await track.restartTrack(options);
+    } catch (e) {
+      console.warn("[Voice] restartTrack failed:", e);
+    }
+
+    try {
+      if (nsEnabled) {
+        await track.setProcessor(
+          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" } }),
+        );
+        console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
+      } else {
+        await track.stopProcessor();
+        console.log("[Voice] DeepFilterNet3 noise suppression disabled");
+      }
+    } catch (e) {
+      console.warn("[Voice] ❌ DF3 processor error:", e);
+    }
+  }
+
   disconnect() {
     const room = this.room();
     if (!room) return;
+
+    // Stop per-process audio capture if active
+    this.#stopAppAudioCapture();
 
     voiceNotifications.playSelfLeave();
 
@@ -283,6 +402,8 @@ class Voice {
       this.#setState("READY");
       this.#setRoom(undefined);
       this.#setChannel(undefined);
+      this.#setScreenshare(false);
+      this.#setVideo(false);
     });
   }
 
@@ -357,10 +478,19 @@ class Voice {
     this.#setVideo(room.localParticipant.isCameraEnabled);
   }
 
+  setAppAudioSourceId(id: string | null) {
+    this.#appAudioSourceId = id;
+  }
+
   async toggleScreenshare() {
     const room = this.room();
     if (!room) throw "invalid state";
     const enabling = !room.localParticipant.isScreenShareEnabled;
+
+    if (!enabling) {
+      await this.#stopAppAudioCapture();
+    }
+
     try {
       await room.localParticipant.setScreenShareEnabled(
         enabling,
@@ -374,16 +504,111 @@ class Voice {
         } : undefined,
       );
     } catch (e: any) {
-      // Swallow all errors when enabling — covers user cancel, permission denied,
-      // device errors, and any Electron-specific rejection reasons.
       if (enabling) {
         console.warn("[Voice] screenshare cancelled or failed:", e?.message ?? e);
+        this.#appAudioSourceId = null;
         return;
       }
       throw e;
     }
 
     this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
+
+    if (room.localParticipant.isScreenShareEnabled) {
+      voiceNotifications.playScreenshareStart();
+    } else {
+      voiceNotifications.playScreenshareEnd();
+    }
+
+    // After successful enable: publish per-process audio if a window source was selected
+    if (enabling && room.localParticipant.isScreenShareEnabled && this.#appAudioSourceId) {
+      await this.#publishAppAudioTrack(room);
+    }
+  }
+
+  async #publishAppAudioTrack(room: Room) {
+    if (!window.appAudioCapture || !this.#appAudioSourceId) return;
+
+    const started = await window.appAudioCapture.start(this.#appAudioSourceId);
+    if (!started) {
+      console.warn("[Voice] Per-process audio capture failed — keeping loopback audio");
+      return;
+    }
+
+    try {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      await ctx.audioWorklet.addModule(getPcmFeederWorkletUrl());
+
+      const worklet = new AudioWorkletNode(ctx, "pcm-feeder", {
+        outputChannelCount: [2],
+      });
+      const destination = ctx.createMediaStreamDestination();
+      worklet.connect(destination);
+
+      const dataHandler = (chunk: Uint8Array) => {
+        const int16 = new Int16Array(chunk.buffer, chunk.byteOffset, chunk.byteLength / 2);
+        worklet.port.postMessage(int16);
+      };
+      window.appAudioCapture.onData(dataHandler);
+
+      // Unpublish the existing loopback ScreenShareAudio track
+      const existingPub = room.localParticipant.getTrackPublication(
+        Track.Source.ScreenShareAudio,
+      );
+      if (existingPub?.track) {
+        await room.localParticipant.unpublishTrack(
+          existingPub.track.mediaStreamTrack,
+        );
+      }
+
+      // Publish per-process audio in its place
+      const audioTrack = destination.stream.getAudioTracks()[0];
+      await room.localParticipant.publishTrack(audioTrack, {
+        source: Track.Source.ScreenShareAudio,
+      });
+
+      this.#appAudioCtx = ctx;
+      this.#appAudioWorklet = worklet;
+      this.#appAudioDestination = destination;
+      this.#appAudioDataHandler = dataHandler;
+
+      console.log("[Voice] ✅ Per-process audio capture active (replaced loopback)");
+    } catch (e) {
+      console.warn("[Voice] ❌ Per-process audio pipeline failed:", e);
+      await window.appAudioCapture.stop();
+    }
+  }
+
+  async #stopAppAudioCapture() {
+    if (this.#appAudioDataHandler) {
+      window.appAudioCapture?.offData(this.#appAudioDataHandler);
+      this.#appAudioDataHandler = null;
+    }
+    await window.appAudioCapture?.stop();
+
+    // Unpublish the track from LiveKit before tearing down
+    const room = this.room();
+    if (room && this.#appAudioDestination) {
+      for (const track of this.#appAudioDestination.stream.getTracks()) {
+        const pub = Array.from(room.localParticipant.trackPublications.values())
+          .find((p) => p.track?.mediaStreamTrack === track);
+        if (pub) {
+          await room.localParticipant.unpublishTrack(track);
+        }
+        track.stop();
+      }
+    }
+
+    this.#appAudioWorklet?.disconnect();
+    this.#appAudioWorklet = null;
+    this.#appAudioDestination = null;
+
+    if (this.#appAudioCtx) {
+      await this.#appAudioCtx.close();
+      this.#appAudioCtx = null;
+    }
+
+    this.#appAudioSourceId = null;
   }
 
   getConnectedUser(userId: string) {
@@ -543,6 +768,8 @@ export function VoiceContext(props: { children: JSX.Element }) {
     const soundMute = state.voice.soundMute;
     const soundUnmute = state.voice.soundUnmute;
     const soundReceiveMessage = state.voice.soundReceiveMessage;
+    const soundScreenshareStart = state.voice.soundScreenshareStart;
+    const soundScreenshareEnd = state.voice.soundScreenshareEnd;
     
     console.log("[VoiceNotifications] Settings updated - enabled:", enabled, "volume:", volume);
     
@@ -558,6 +785,25 @@ export function VoiceContext(props: { children: JSX.Element }) {
     voiceNotifications.setSoundEnabled("mute", soundMute);
     voiceNotifications.setSoundEnabled("unmute", soundUnmute);
     voiceNotifications.setSoundEnabled("receive_message", soundReceiveMessage);
+    voiceNotifications.setSoundEnabled("screenshare_start", soundScreenshareStart);
+    voiceNotifications.setSoundEnabled("screenshare_end", soundScreenshareEnd);
+  });
+
+  // live-update mic constraints when noise suppression / echo cancellation changes
+  createEffect(() => {
+    // track these reactively
+    state.voice.noiseSupression;
+    state.voice.echoCancellation;
+    voice.applyMicConstraints();
+  });
+
+  // Listen for per-process audio window selection from Electron
+  onMount(() => {
+    if (window.desktopCapture?.onWindowSelected) {
+      window.desktopCapture.onWindowSelected((sourceId) => {
+        voice.setAppAudioSourceId(sourceId);
+      });
+    }
   });
 
   return (
