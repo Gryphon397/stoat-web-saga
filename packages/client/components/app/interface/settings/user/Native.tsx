@@ -30,6 +30,9 @@ declare global {
       minimise(): void;
       maximise(): void;
       close(): void;
+      onUpdateProgress(callback: (percent: number) => void): void;
+      onUpdateAvailable(callback: () => void): void;
+      installUpdate(): void;
     };
 
     desktopConfig: {

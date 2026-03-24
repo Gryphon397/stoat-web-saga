@@ -1,4 +1,4 @@
-import { Accessor, For, JSX, Show, createMemo, createSignal } from "solid-js";
+import { Accessor, For, JSX, Show, createMemo, createSignal, onMount } from "solid-js";
 
 import { Trans } from "@lingui-solid/solid/macro";
 import { Channel, Server, User } from "stoat.js";
@@ -17,6 +17,7 @@ import MdAdd from "@material-design-icons/svg/filled/add.svg?component-solid";
 import MdExplore from "@material-design-icons/svg/filled/explore.svg?component-solid";
 import MdHome from "@material-design-icons/svg/filled/home.svg?component-solid";
 import MdSettings from "@material-design-icons/svg/filled/settings.svg?component-solid";
+import MdDownload from "@material-design-icons/svg/filled/download.svg?component-solid";
 
 import { Tooltip } from "../../../../components/ui/components/floating";
 import { Draggable } from "../../../../components/ui/components/utils/Draggable";
@@ -114,6 +115,17 @@ export const ServerList = (props: Props) => {
 
   // Ref for floating menu
   const [menuButton, setMenuButton] = createSignal<HTMLDivElement>();
+
+  // Desktop app update indicator
+  const [downloadProgress, setDownloadProgress] = createSignal<number | null>(null);
+  const [updateAvailable, setUpdateAvailable] = createSignal(false);
+  onMount(() => {
+    window.native?.onUpdateProgress?.((percent) => setDownloadProgress(percent));
+    window.native?.onUpdateAvailable?.(() => {
+      setDownloadProgress(null);
+      setUpdateAvailable(true);
+    });
+  });
 
   return (
     <ServerListBase>
@@ -317,6 +329,32 @@ export const ServerList = (props: Props) => {
       <Shadow>
         <div />
       </Shadow>
+      <Show when={downloadProgress() !== null}>
+        <Tooltip placement="right" content={`Downloading update... ${downloadProgress()}%`}>
+          <div class={entryContainer()} style={{ cursor: "default" }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(59,165,92,0.25)" stroke-width="3" />
+              <circle
+                cx="18" cy="18" r="15" fill="none"
+                stroke="rgba(59,165,92,0.85)" stroke-width="3" stroke-linecap="round"
+                stroke-dasharray={`${2 * Math.PI * 15}`}
+                stroke-dashoffset={`${2 * Math.PI * 15 * (1 - (downloadProgress() ?? 0) / 100)}`}
+              />
+            </svg>
+          </div>
+        </Tooltip>
+      </Show>
+      <Show when={updateAvailable()}>
+        <Tooltip placement="right" content="Update ready — click to restart and install">
+          <a
+            class={entryContainer()}
+            style={{ fill: "#3ba55c" }}
+            onClick={() => window.native?.installUpdate?.()}
+          >
+            <Avatar size={42} fallback={<MdDownload />} interactive />
+          </a>
+        </Tooltip>
+      </Show>
       <Tooltip placement="right" content="Settings">
         <a
           class={entryContainer()}
