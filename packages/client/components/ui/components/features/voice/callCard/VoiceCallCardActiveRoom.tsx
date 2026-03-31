@@ -177,7 +177,7 @@ function UserTile() {
         speaking: isSpeaking(),
       })}
       onClick={toggleFullscreen}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: "pointer", position: "relative" }}
       use:floating={{
         userCard: {
           user: user().user!,
@@ -662,7 +662,7 @@ function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
       case ConnectionQuality.Good:      return "#8bc34a";
       case ConnectionQuality.Poor:      return "#ff9800";
       case ConnectionQuality.Lost:      return "#f44336";
-      default:                          return "rgba(255,255,255,0.35)";
+      default:                          return "rgba(255,255,255,0.7)";
     }
   };
 
@@ -692,7 +692,7 @@ function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
         padding: "2px",
       }}
     >
-      <Symbol size={14}>{icon()}</Symbol>
+      <Symbol size={18}>{icon()}</Symbol>
     </span>
   );
 }
