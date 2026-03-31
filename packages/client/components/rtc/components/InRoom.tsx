@@ -16,13 +16,17 @@ export function InRoom(props: {
   const room = useMaybeRoomContext();
   const voice = useVoice();
 
+  const condition = () => {
+    const r = room?.();
+    const s = voice.state();
+    const ok = !!r && s === "CONNECTED" && (!props.channelId || props.channelId === voice.channel()?.id);
+    console.log('[badge] InRoom check — room:', !!r, 'state:', s, 'ok:', ok);
+    return ok;
+  };
+
   return (
     <Show
-      when={
-        room?.() &&
-        voice.state() === "CONNECTED" &&
-        (!props.channelId || props.channelId === voice.channel()?.id)
-      }
+      when={condition()}
       fallback={props.fallback}
     >
       {props.children}

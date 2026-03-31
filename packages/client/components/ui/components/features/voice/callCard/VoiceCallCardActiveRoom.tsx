@@ -76,6 +76,7 @@ const Call = styled("div", {
  * Show a grid of participants
  */
 function Participants() {
+  console.log('[badge] Participants() rendered');
   const allTracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: true },
@@ -84,9 +85,12 @@ function Participants() {
     { onlySubscribed: false },
   );
   // Hide hidden viewer connections opened by the popout window
-  const tracks = () => allTracks().filter(
-    (t) => !t.participant.identity.startsWith("viewer-")
-  );
+  const tracks = () => {
+    const all = allTracks();
+    const filtered = all.filter((t) => !t.participant.identity.startsWith("viewer-"));
+    console.log('[badge] tracks update — allTracks:', all.length, 'filtered:', filtered.length, filtered.map(t => t.participant.identity));
+    return filtered;
+  };
 
   return (
     <Grid>
