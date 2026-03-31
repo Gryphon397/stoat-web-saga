@@ -3,6 +3,7 @@ import {
   isTrackReference,
   TrackLoop,
   TrackReference,
+  useConnectionQuality,
   useEnsureParticipant,
   useIsMuted,
   useIsSpeaking,
@@ -12,7 +13,7 @@ import {
   VideoTrack,
 } from "solid-livekit-components";
 
-import { Track } from "livekit-client";
+import { ConnectionQuality, Track } from "livekit-client";
 import { cva } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
@@ -146,6 +147,7 @@ function UserTile() {
   });
 
   const isSpeaking = useIsSpeaking(participant);
+  const connectionQuality = useConnectionQuality(participant);
   const isDeafened = () =>
     !voice.channel()?.voiceParticipants.get(participant.identity)?.isReceiving();
 
@@ -223,6 +225,7 @@ function UserTile() {
           <Show when={isTrackReference(track) && !isVideoMuted()}>
             <Symbol size={18}>fullscreen</Symbol>
           </Show>
+          <ConnectionQualityBadge quality={connectionQuality()} />
         </OverlayInner>
       </Overlay>
     </div>
@@ -636,3 +639,46 @@ const OverlayIconButton = styled("button", {
     },
   },
 });
+
+/**
+ * Small connection quality indicator shown in participant tiles
+ */
+function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
+  const icon = () => {
+    switch (props.quality) {
+      case ConnectionQuality.Excellent: return "signal_cellular_4_bar";
+      case ConnectionQuality.Good:      return "signal_cellular_3_bar";
+      case ConnectionQuality.Poor:      return "network_check";
+      case ConnectionQuality.Lost:      return "wifi_off";
+      default:                          return null;
+    }
+  };
+
+  const color = () => {
+    switch (props.quality) {
+      case ConnectionQuality.Excellent: return "#4caf50";
+      case ConnectionQuality.Good:      return "#8bc34a";
+      case ConnectionQuality.Poor:      return "#ff9800";
+      case ConnectionQuality.Lost:      return "#f44336";
+      default:                          return "transparent";
+    }
+  };
+
+  const label = () => {
+    switch (props.quality) {
+      case ConnectionQuality.Excellent: return "Excellent connection";
+      case ConnectionQuality.Good:      return "Good connection";
+      case ConnectionQuality.Poor:      return "Poor connection";
+      case ConnectionQuality.Lost:      return "Connection lost";
+      default:                          return "";
+    }
+  };
+
+  return (
+    <Show when={icon()}>
+      <span title={label()} style={{ color: color(), display: "flex", "align-items": "center" }}>
+        <Symbol size={14}>{icon()!}</Symbol>
+      </span>
+    </Show>
+  );
+}
