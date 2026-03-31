@@ -652,7 +652,7 @@ function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
       case ConnectionQuality.Good:      return "signal_cellular_3_bar";
       case ConnectionQuality.Poor:      return "network_check";
       case ConnectionQuality.Lost:      return "wifi_off";
-      default:                          return null;
+      default:                          return "signal_cellular_0_bar";
     }
   };
 
@@ -662,7 +662,7 @@ function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
       case ConnectionQuality.Good:      return "#8bc34a";
       case ConnectionQuality.Poor:      return "#ff9800";
       case ConnectionQuality.Lost:      return "#f44336";
-      default:                          return "transparent";
+      default:                          return "rgba(255,255,255,0.35)";
     }
   };
 
@@ -672,29 +672,27 @@ function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
       case ConnectionQuality.Good:      return "Good connection";
       case ConnectionQuality.Poor:      return "Poor connection";
       case ConnectionQuality.Lost:      return "Connection lost";
-      default:                          return "";
+      default:                          return "Measuring connection…";
     }
   };
 
   return (
-    <Show when={icon()}>
-      <span
-        title={label()}
-        style={{
-          position: "absolute",
-          top: "6px",
-          right: "6px",
-          "z-index": "2",
-          color: color(),
-          display: "flex",
-          "align-items": "center",
-          "background": "rgba(0,0,0,0.45)",
-          "border-radius": "4px",
-          padding: "2px",
-        }}
-      >
-        <Symbol size={14}>{icon()!}</Symbol>
-      </span>
-    </Show>
+    <span
+      title={label()}
+      style={{
+        position: "absolute",
+        top: "6px",
+        right: "6px",
+        "z-index": "2",
+        color: color(),
+        display: "flex",
+        "align-items": "center",
+        "background": "rgba(0,0,0,0.45)",
+        "border-radius": "4px",
+        padding: "2px",
+      }}
+    >
+      <Symbol size={14}>{icon()}</Symbol>
+    </span>
   );
 }
