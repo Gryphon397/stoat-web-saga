@@ -148,6 +148,7 @@ function UserTile() {
 
   const isSpeaking = useIsSpeaking(participant);
   const connectionQuality = useConnectionQuality(participant);
+  console.log('[badge] UserTile rendered for', participant.identity, 'quality signal:', connectionQuality());
   const isDeafened = () =>
     !voice.channel()?.voiceParticipants.get(participant.identity)?.isReceiving();
 
@@ -646,6 +647,7 @@ const OverlayIconButton = styled("button", {
  * Fixed top-right corner connection quality indicator on participant tiles
  */
 function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
+  console.log('[badge] ConnectionQualityBadge rendered, quality =', props.quality);
   const icon = () => {
     switch (props.quality) {
       case ConnectionQuality.Excellent: return "signal_cellular_4_bar";
