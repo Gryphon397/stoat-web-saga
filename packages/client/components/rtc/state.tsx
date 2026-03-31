@@ -102,6 +102,7 @@ declare global {
   }
 }
 
+
 import { Channel } from "stoat.js";
 
 import { useState } from "@revolt/state";
@@ -109,6 +110,7 @@ import { Voice as VoiceSettings } from "@revolt/state/stores/Voice";
 import { useClient } from "@revolt/client";
 import { VoiceCallCardContext } from "@revolt/ui/components/features/voice/callCard/VoiceCallCard";
 
+import { CONFIGURATION } from "@revolt/common";
 import { InRoom } from "./components/InRoom";
 import { RoomAudioManager } from "./components/RoomAudioManager";
 import { ScreenSharePicker } from "./components/ScreenSharePicker";
@@ -240,6 +242,7 @@ class Voice {
         // running in series produce static artifacts.
         echoCancellation: this.#settings.noiseSupression ? false : (this.#settings.echoCancellation ?? true),
         noiseSuppression: false, // DF3 handles noise suppression via setProcessor
+        autoGainControl: this.#settings.autoGainControl,
       },
       videoCaptureDefaults: {
         resolution: VideoPresets.h1080.resolution,

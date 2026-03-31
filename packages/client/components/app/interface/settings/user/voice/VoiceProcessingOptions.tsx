@@ -1,5 +1,6 @@
 import { useState } from "@revolt/state";
 import { CategoryButton, Checkbox, Column, Text } from "@revolt/ui";
+import { CategoryCollapse } from "@revolt/ui/components/design/CategoryButton";
 
 export function VoiceProcessingOptions() {
   const state = useState();
@@ -18,6 +19,7 @@ export function VoiceProcessingOptions() {
           Noise Suppression
         </CategoryButton>
 
+
         <CategoryButton
           icon="blank"
           action={<Checkbox checked={state.voice.noiseSupression ? false : state.voice.echoCancellation} style={{ "pointer-events": "none", opacity: state.voice.noiseSupression ? 0.5 : 1 }} />}
@@ -28,6 +30,15 @@ export function VoiceProcessingOptions() {
           }}
         >
           {state.voice.noiseSupression ? "Echo Cancellation (disabled — conflicts with Noise Suppression)" : "Echo Cancellation"}
+        </CategoryButton>
+        <CategoryButton
+          icon="blank"
+          action={<Checkbox checked={state.voice.autoGainControl} />}
+          onClick={() =>
+            (state.voice.autoGainControl = !state.voice.autoGainControl)
+          }
+        >
+          <Trans>Automatic Gain Control</Trans>
         </CategoryButton>
       </CategoryButton.Group>
     </Column>

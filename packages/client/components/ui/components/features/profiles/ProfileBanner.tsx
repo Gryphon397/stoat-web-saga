@@ -1,10 +1,12 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 
 import { ServerMember, User } from "stoat.js";
 import { css } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
+import { useLingui } from "@lingui-solid/solid/macro";
 import { useState } from "@revolt/state";
+import { Tooltip } from "@revolt/ui";
 
 import { DecoratedAvatar, Ripple, UserStatus, typography } from "../../design";
 import { Row } from "../../layout";
@@ -18,8 +20,27 @@ export function ProfileBanner(props: {
   width: 2 | 3;
 }) {
   const state = useState();
+  const { t } = useLingui();
 
   const decorationUrl = () => state.decorations.getDecorationUrl(props.user.id);
+
+  const [isCopied, setIsCopied] = createSignal(false);
+
+  function copyUsername() {
+    navigator.clipboard.writeText(
+      `${props.user.username}#${props.user.discriminator}`,
+    );
+  }
+
+  function onUsernameClick(e: MouseEvent) {
+    e.stopPropagation();
+    copyUsername();
+    setIsCopied(true);
+
+    setTimeout(() => {
+      setIsCopied(false);
+    }, 2000);
+  }
 
   return (
     <Banner
@@ -55,12 +76,17 @@ export function ProfileBanner(props: {
               {props.member?.displayName ?? props.user.displayName}
             </span>
           </Show>
-          <span>
-            {props.user.username}
-            <span class={css({ fontWeight: 200 })}>
-              #{props.user.discriminator}
-            </span>
-          </span>
+          <Tooltip
+            content={isCopied() ? t`Copied!` : t`Click to copy username`}
+            placement="top"
+          >
+            <Username onClick={onUsernameClick}>
+              {props.user.username}
+              <span class={css({ fontWeight: 200 })}>
+                #{props.user.discriminator}
+              </span>
+            </Username>
+          </Tooltip>
         </UserShort>
       </Row>
     </Banner>
@@ -113,5 +139,13 @@ const UserShort = styled("div", {
     lineHeight: "1em",
     gap: "var(--gap-xs)",
     flexDirection: "column",
+  },
+});
+
+const Username = styled("span", {
+  base: {
+    _hover: {
+      textDecoration: "underline",
+    },
   },
 });

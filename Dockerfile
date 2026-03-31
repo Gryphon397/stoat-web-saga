@@ -18,6 +18,7 @@ COPY packages/stoat.js/package.json packages/stoat.js/
 COPY packages/solid-livekit-components/package.json packages/solid-livekit-components/
 COPY packages/js-lingui-solid/packages/babel-plugin-lingui-macro/package.json packages/js-lingui-solid/packages/babel-plugin-lingui-macro/
 COPY packages/js-lingui-solid/packages/babel-plugin-extract-messages/package.json packages/js-lingui-solid/packages/babel-plugin-extract-messages/
+COPY packages/js-lingui-solid/packages/jest-mocks/package.json packages/js-lingui-solid/packages/jest-mocks/
 COPY packages/client/package.json packages/client/
 
 # Copy panda config needed by client's "prepare" lifecycle script (panda codegen)
@@ -52,6 +53,7 @@ ENV VITE_KLIPY_KEY=__VITE_KLIPY_KEY__
 ENV VITE_CFG_ENABLE_VIDEO=__VITE_CFG_ENABLE_VIDEO__
 ENV VITE_CFG_MAX_FILE_SIZE=__VITE_CFG_MAX_FILE_SIZE__
 ENV VITE_PLEX_PROXY_URL=__VITE_PLEX_PROXY_URL__
+ENV VITE_GIFBOX_URL=__VITE_GIFBOX_URL__
 ENV BASE_PATH=/
 
 RUN cd packages/client && /build/node_modules/.bin/vite build
@@ -88,6 +90,7 @@ ENV VITE_KLIPY_KEY=""
 ENV VITE_CFG_ENABLE_VIDEO=""
 ENV VITE_CFG_MAX_FILE_SIZE=""
 ENV VITE_PLEX_PROXY_URL=""
+ENV VITE_GIFBOX_URL=""
 ENV REVOLT_PUBLIC_URL=""
 
 CMD ["npm", "start"]

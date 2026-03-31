@@ -152,6 +152,7 @@ if (window.location.pathname === "/popout") {
             <Route path="/delete/:token" component={FlowDeleteAccount} />
             <Route path="/check" component={FlowCheck} />
             <Route path="/create" component={FlowCreate} />
+            <Route path="/create/:code" component={FlowCreate} />
             <Route path="/auth" component={FlowLogin} />
             <Route path="/resend" component={FlowResend} />
             <Route path="/reset" component={FlowReset} />
@@ -159,7 +160,7 @@ if (window.location.pathname === "/popout") {
             <Route path="/reset/:token" component={FlowConfirmReset} />
             <Route path="/*" component={FlowHome} />
           </Route>
-          <Route path="/" component={Interface as never}>
+          <Route path="/" component={Interface as never}
             <Route path="/pwa" component={PWARedirect} />
             <Route path="/dev" component={DevelopmentPage} />
             <Route path="/discover/*" component={Discover} />

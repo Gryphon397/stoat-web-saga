@@ -8,7 +8,7 @@ export interface TypeVoice {
 
   echoCancellation: boolean;
   noiseSupression: boolean;
-  rnnoise: boolean;
+  autoGainControl: boolean;
 
   inputVolume: number;
   outputVolume: number;
@@ -68,7 +68,7 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     return {
       echoCancellation: true,
       noiseSupression: true,
-      rnnoise: false,
+      autoGainControl: true,
       inputVolume: 1.0,
       outputVolume: 1.0,
       userVolumes: {},
@@ -119,8 +119,8 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       data.noiseSupression = input.noiseSupression;
     }
 
-    if (typeof input.rnnoise === "boolean") {
-      data.rnnoise = input.rnnoise;
+    if (typeof input.autoGainControl === "boolean") {
+      data.autoGainControl = input.autoGainControl;
     }
 
     if (typeof input.inputVolume === "number") {
@@ -361,11 +361,10 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
   }
 
   /**
-   * Set RNNoise
+   * Set auto gain control
    */
-  set rnnoise(value: boolean) {
-    this.set("rnnoise", value);
-    console.log("[Voice] rnnoise setter called:", value);
+  set autoGainControl(value: boolean) {
+    this.set("autoGainControl", value);
   }
 
   /**
@@ -411,10 +410,10 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
   }
 
   /**
-   * Get rnnoise
+   * Get auto gain control
    */
-  get rnnoise(): boolean | undefined {
-    return this.get().rnnoise;
+  get autoGainControl(): boolean | undefined {
+    return this.get().autoGainControl;
   }
 
   /**
