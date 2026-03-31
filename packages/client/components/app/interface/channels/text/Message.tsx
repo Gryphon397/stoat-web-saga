@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createSignal, onMount } from "solid-js";
+import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
 
 import { useLingui } from "@lingui-solid/solid/macro";
 import { Message as MessageInterface, WebsiteEmbed } from "stoat.js";
@@ -13,6 +13,7 @@ import { useState } from "@revolt/state";
 import {
   Attachment,
   Avatar,
+  DecoratedAvatar,
   Embed,
   MessageContainer,
   MessageReply,
@@ -76,7 +77,14 @@ export function Message(props: Props) {
 
   const [isHovering, setIsHovering] = createSignal(false);
 
-  /**
+  const messageDecorationUrl = createMemo(() => {
+    if (props.message.masquerade) return undefined;
+    const authorId = props.message.author?.id;
+    if (!authorId) return undefined;
+    return state.decorations.getDecorationUrl(authorId);
+  });
+
+/**
    * Determine whether this message only contains a GIF
    */
   const isOnlyGIF = () =>
@@ -125,13 +133,14 @@ export function Message(props: Props) {
           class={avatarContainer()}
           use:floating={floatingUserMenusFromMessage(props.message)}
         >
-          <Avatar
-            size={36}
+          <DecoratedAvatar
+            size={44}
             src={
               isHovering()
                 ? props.message.animatedAvatarURL
                 : props.message.avatarURL
             }
+            decorationUrl={messageDecorationUrl()}
           />
         </div>
       }
@@ -321,12 +330,12 @@ const NewUser = styled("div", {
 });
 
 /**
- * Avatar container
+ * Avatar container — overflow visible so decoration frame extends beyond bounds
  */
 const avatarContainer = cva({
   base: {
     height: "fit-content",
-    borderRadius: "var(--borderRadius-circle)",
+    overflow: "visible",
   },
 });
 

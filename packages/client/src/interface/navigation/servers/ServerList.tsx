@@ -11,7 +11,7 @@ import { KeybindAction, createKeybind } from "@revolt/keybinds";
 import { useModals } from "@revolt/modal";
 import { useNavigate } from "@revolt/routing";
 import { useState } from "@revolt/state";
-import { Avatar, Column, Text, Time, Unreads, UserStatus } from "@revolt/ui";
+import { Avatar, DecoratedAvatar, Column, Text, Time, Unreads, UserStatus } from "@revolt/ui";
 
 import MdAdd from "@material-design-icons/svg/filled/add.svg?component-solid";
 import MdExplore from "@material-design-icons/svg/filled/explore.svg?component-solid";
@@ -70,6 +70,7 @@ export const ServerList = (props: Props) => {
   const state = useState();
   const client = useClient();
   const navigate = useNavigate();
+  const userDecorationUrl = () => state.decorations.getDecorationUrl(props.user.id);
   const { openModal } = useModals();
 
   const navigateServer = (byOffset: number) => {
@@ -169,12 +170,13 @@ export const ServerList = (props: Props) => {
           aria={props.user.username}
         >
           <a ref={setMenuButton} class={entryContainer()}>
-            <Avatar
+            <DecoratedAvatar
               size={42}
               src={props.user.avatarURL}
               holepunch={"bottom-right"}
               overlay={<UserStatus.Graphic status={props.user.presence} />}
               interactive
+              decorationUrl={userDecorationUrl()}
             />
           </a>
           <UserMenu anchor={menuButton} />

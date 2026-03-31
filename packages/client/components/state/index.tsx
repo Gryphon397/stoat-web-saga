@@ -13,12 +13,14 @@ import localforage from "localforage";
 
 import { AbstractStore, Store } from "./stores";
 import { Auth } from "./stores/Auth";
+import { Decorations } from "./stores/Decorations";
 import { Draft } from "./stores/Draft";
 import { Experiments } from "./stores/Experiments";
 import { Keybinds } from "./stores/Keybinds";
 import { Layout } from "./stores/Layout";
 import { LinkSafety } from "./stores/LinkSafety";
 import { Locale } from "./stores/Locale";
+import { Nameplates } from "./stores/Nameplates";
 import { NotificationOptions } from "./stores/NotificationOptions";
 import { Ordering } from "./stores/Ordering";
 import { Settings } from "./stores/Settings";
@@ -49,12 +51,14 @@ export class State {
 
   // define all stores
   auth = new Auth(this);
+  decorations = new Decorations(this);
   draft = new Draft(this);
   experiments = new Experiments(this);
   keybinds = new Keybinds(this);
   layout = new Layout(this);
   linkSafety = new LinkSafety(this);
   locale = new Locale(this);
+  nameplates = new Nameplates(this);
   notifications = new NotificationOptions(this);
   ordering = new Ordering(this);
   settings = new Settings(this);

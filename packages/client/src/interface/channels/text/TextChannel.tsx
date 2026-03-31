@@ -235,6 +235,7 @@ export function TextChannel(props: ChannelPageProps) {
                 <MemberSidebar
                   channel={props.channel}
                   scrollTargetElement={sidebarScrollTargetElement}
+                  isVoice={isVoice()}
                 />
               }
             >

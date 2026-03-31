@@ -7,6 +7,7 @@ import { styled } from "styled-system/jsx";
 
 import { floatingUserMenus } from "@revolt/app/menus/UserContextMenu";
 import { useClient } from "@revolt/client";
+import { useState } from "@revolt/state";
 import { TextWithEmoji } from "@revolt/markdown";
 import { userInformation } from "@revolt/markdown/users";
 import {
@@ -31,6 +32,11 @@ interface Props {
    * Scroll target element
    */
   scrollTargetElement: HTMLDivElement;
+
+  /**
+   * Whether this sidebar is for a voice channel
+   */
+  isVoice?: boolean;
 }
 
 /**
@@ -49,6 +55,7 @@ export function MemberSidebar(props: Props) {
         <ServerMemberSidebar
           channel={props.channel}
           scrollTargetElement={props.scrollTargetElement}
+          isVoice={props.isVoice}
         />
       </Match>
     </Switch>
@@ -275,6 +282,7 @@ export function ServerMemberSidebar(props: Props) {
                 <Match when={item.item.t === 1}>
                   <Member
                     member={(item.item as { member: ServerMember }).member}
+                    isVoice={props.isVoice}
                   />
                 </Match>
               </Switch>
@@ -378,8 +386,9 @@ const NameStatusStack = styled("div", {
 /**
  * Member
  */
-function Member(props: { user?: User; member?: ServerMember }) {
+function Member(props: { user?: User; member?: ServerMember; isVoice?: boolean }) {
   const { t } = useLingui();
+  const state = useState();
 
   /**
    * Create user information
@@ -402,6 +411,10 @@ function Member(props: { user?: User; member?: ServerMember }) {
               ? t`Idle`
               : t`Offline`,
     );
+
+  const userId = () => props.user?.id ?? props.member?.user?.id;
+  const nameplateUrl = () =>
+    userId() ? state.nameplates.getNameplateUrl(userId()!) : undefined;
 
   return (
     <div
@@ -427,6 +440,11 @@ function Member(props: { user?: User; member?: ServerMember }) {
             }
           />
         }
+        style={nameplateUrl() ? {
+          "background-image": `url(${nameplateUrl()})`,
+          "background-size": "100% 100%",
+          "background-repeat": "no-repeat",
+        } : {}}
       >
         <NameStatusStack>
           <OverflowingText>

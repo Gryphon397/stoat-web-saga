@@ -4,7 +4,9 @@ import { ServerMember, User } from "stoat.js";
 import { css } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
-import { Avatar, Ripple, UserStatus, typography } from "../../design";
+import { useState } from "@revolt/state";
+
+import { DecoratedAvatar, Ripple, UserStatus, typography } from "../../design";
 import { Row } from "../../layout";
 
 export function ProfileBanner(props: {
@@ -15,6 +17,10 @@ export function ProfileBanner(props: {
   onClickAvatar?: (e: MouseEvent) => void;
   width: 2 | 3;
 }) {
+  const state = useState();
+
+  const decorationUrl = () => state.decorations.getDecorationUrl(props.user.id);
+
   return (
     <Banner
       style={{
@@ -29,13 +35,14 @@ export function ProfileBanner(props: {
       </Show>
 
       <Row align gap="lg">
-        <Avatar
+        <DecoratedAvatar
           src={props.user.animatedAvatarURL}
           size={48}
           holepunch="bottom-right"
           onClick={props.onClickAvatar}
           interactive={props.user.avatar && !!props.onClickAvatar}
           overlay={<UserStatus.Graphic status={props.user.presence} />}
+          decorationUrl={decorationUrl()}
         />
         <UserShort>
           <Show

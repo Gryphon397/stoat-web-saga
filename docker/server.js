@@ -28,6 +28,49 @@ app.use(
   })
 );
 
+// Proxy Discord CDN decoration APNGs (avoids CORS, serves passthrough APNG animations)
+app.get("/decoration-proxy", async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).end("missing url");
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).end("invalid url"); }
+  if (!parsed.hostname.endsWith("discordapp.com") || !parsed.pathname.startsWith("/avatar-decoration-presets/")) {
+    return res.status(400).end("disallowed url");
+  }
+  try {
+    const upstream = await fetch(url);
+    if (!upstream.ok) return res.status(upstream.status).end();
+    const ct = upstream.headers.get("content-type") || "image/png";
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.set("Content-Type", ct);
+    res.set("Cache-Control", "public, max-age=86400");
+    res.set("Content-Length", buf.byteLength);
+    res.end(buf);
+  } catch (e) {
+    res.status(500).end();
+  }
+});
+
+// Proxy Discord CDN nameplate images (avoids CORS)
+app.get("/nameplate-proxy", async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug || !/^[a-z0-9_/]+$/.test(slug)) return res.status(400).end("invalid slug");
+  const cdnPath = slug.includes("/") ? slug : `nameplates/${slug}`;
+  const url = `https://cdn.discordapp.com/assets/collectibles/nameplates/${cdnPath}/static.png`;
+  try {
+    const upstream = await fetch(url);
+    if (!upstream.ok) return res.status(upstream.status).end();
+    const ct = upstream.headers.get("content-type") || "image/png";
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.set("Content-Type", ct);
+    res.set("Cache-Control", "public, max-age=86400");
+    res.set("Content-Length", buf.byteLength);
+    res.end(buf);
+  } catch (e) {
+    res.status(500).end();
+  }
+});
+
 // Download proxy for Klipy static CDN (avoids CORS when fetching for attachment upload)
 app.get("/gif-proxy", async (req, res) => {
   const url = req.query.url;

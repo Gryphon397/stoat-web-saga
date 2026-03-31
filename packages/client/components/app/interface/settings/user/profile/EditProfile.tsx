@@ -11,6 +11,8 @@ import MdGroups from "@material-design-icons/svg/outlined/groups.svg?component-s
 
 import { UserSummary } from "../account/index";
 
+import { DecorationPicker } from "./DecorationPicker";
+import { NameplatePicker } from "./NameplatePicker";
 import { UserProfileEditor } from "./UserProfileEditor";
 
 /**
@@ -65,6 +67,9 @@ export function EditProfile() {
         </Text>
         <UserProfileEditor user={client().user!} />
       </Column>
+
+      <DecorationPicker />
+      <NameplatePicker />
     </Column>
   );
 }

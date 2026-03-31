@@ -29,6 +29,7 @@
  */
 
 export { Avatar } from "./Avatar";
+export { DecoratedAvatar } from "./DecoratedAvatar";
 export { Badge } from "./Badge";
 export { Button } from "./Button";
 export { CategoryButton } from "./CategoryButton";

@@ -1,4 +1,6 @@
 import { For, JSX, Show, splitProps } from "solid-js";
+
+import { useState } from "@revolt/state";
 import {
   TrackLoop,
   useEnsureParticipant,
@@ -143,11 +145,18 @@ function CommonUser(props: {
   ]);
 
   const user = useUser(() => rest.userId);
+  const state = useState();
+  const nameplateUrl = () => state.nameplates.getNameplateUrl(rest.userId);
 
   return (
     <Show when={user().user}>
       <div
         class={previewUser({ speaking: rest.speaking })}
+        style={nameplateUrl() ? {
+          "background-image": `url(${nameplateUrl()})`,
+          "background-size": "100% 100%",
+          "background-repeat": "no-repeat",
+        } : {}}
         use:floating={{
           userCard: {
             user: user().user!,

@@ -63,9 +63,12 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Copy the server package and install dependencies
-COPY docker/package.json docker/inject.js docker/server.js ./
+# Copy just package.json first so npm install is cached independently of server code
+COPY docker/package.json ./
 RUN npm install --omit=dev
+
+# Copy remaining server files (changes here don't invalidate the npm install layer)
+COPY docker/inject.js docker/server.js ./
 
 # Copy DeepFilterNet3 self-hosted model assets
 COPY docker/df3-assets ./df3-assets

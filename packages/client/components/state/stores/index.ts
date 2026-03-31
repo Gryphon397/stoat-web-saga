@@ -3,12 +3,14 @@ import { SetStoreFunction } from "solid-js/store";
 import { State } from "..";
 
 import { TypeAuth } from "./Auth";
+import { TypeDecorations } from "./Decorations";
 import { TypeDraft } from "./Draft";
 import { TypeExperiments } from "./Experiments";
 import { TypeKeybinds } from "./Keybinds";
 import { TypeLayout } from "./Layout";
 import { TypeLinkSafety } from "./LinkSafety";
 import { TypeLocale } from "./Locale";
+import { TypeNameplates } from "./Nameplates";
 import { TypeNotificationOptions } from "./NotificationOptions";
 import { TypeOrdering } from "./Ordering";
 import { TypeSettings } from "./Settings";
@@ -18,12 +20,14 @@ import { TypeVoice } from "./Voice";
 
 export type Store = {
   auth: TypeAuth;
+  decorations: TypeDecorations;
   draft: TypeDraft;
   experiments: TypeExperiments;
   keybinds: TypeKeybinds;
   layout: TypeLayout;
   linkSafety: TypeLinkSafety;
   locale: TypeLocale;
+  nameplates: TypeNameplates;
   notifications: TypeNotificationOptions;
   ordering: TypeOrdering;
   settings: TypeSettings;

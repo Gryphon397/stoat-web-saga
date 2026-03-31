@@ -1,0 +1,93 @@
+[
+  {
+    "id": "vengeance",
+    "name": "Vengeance",
+    "category": "nameplates",
+    "cdnSlug": "vengeance",
+    "url": "/assets/nameplates/images/vengeance.png"
+  },
+  {
+    "id": "cherry_blossoms",
+    "name": "Cherry Blossoms",
+    "category": "nameplates",
+    "cdnSlug": "cherry_blossoms",
+    "url": "/assets/nameplates/images/cherry_blossoms.png"
+  },
+  {
+    "id": "koi_pond",
+    "name": "Koi Pond",
+    "category": "nameplates",
+    "cdnSlug": "koi_pond",
+    "url": "/assets/nameplates/images/koi_pond.png"
+  },
+  {
+    "id": "spirit_of_spring",
+    "name": "Spirit of Spring",
+    "category": "nameplates",
+    "cdnSlug": "spirit_of_spring",
+    "url": "/assets/nameplates/images/spirit_of_spring.png"
+  },
+  {
+    "id": "cat_beans",
+    "name": "Cat Beans",
+    "category": "nameplates",
+    "cdnSlug": "cat_beans",
+    "url": "/assets/nameplates/images/cat_beans.png"
+  },
+  {
+    "id": "cityscape",
+    "name": "Cityscape",
+    "category": "nameplates",
+    "cdnSlug": "cityscape",
+    "url": "/assets/nameplates/images/cityscape.png"
+  },
+  {
+    "id": "twilight",
+    "name": "Twilight",
+    "category": "nameplates",
+    "cdnSlug": "twilight",
+    "url": "/assets/nameplates/images/twilight.png"
+  },
+  {
+    "id": "angels",
+    "name": "Angels",
+    "category": "nameplates",
+    "cdnSlug": "angels",
+    "url": "/assets/nameplates/images/angels.png"
+  },
+  {
+    "id": "white_mana",
+    "name": "White Mana",
+    "category": "nameplates",
+    "cdnSlug": "spell/white_mana",
+    "url": "/assets/nameplates/images/spell_white_mana.png"
+  },
+  {
+    "id": "black_mana",
+    "name": "Black Mana",
+    "category": "nameplates",
+    "cdnSlug": "spell/black_mana",
+    "url": "/assets/nameplates/images/spell_black_mana.png"
+  },
+  {
+    "id": "red_mana",
+    "name": "Red Mana",
+    "category": "nameplates",
+    "cdnSlug": "spell/red_mana",
+    "url": "/assets/nameplates/images/spell_red_mana.png"
+  },
+  {
+    "id": "green_mana",
+    "name": "Green Mana",
+    "category": "nameplates",
+    "cdnSlug": "spell/green_mana",
+    "url": "/assets/nameplates/images/spell_green_mana.png"
+  },
+  {
+    "id": "blue_mana",
+    "name": "Blue Mana",
+    "category": "nameplates",
+    "cdnSlug": "spell/blue_mana",
+    "url": "/assets/nameplates/images/spell_blue_mana.png"
+  }
+]
