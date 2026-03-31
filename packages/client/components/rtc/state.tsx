@@ -307,6 +307,27 @@ class Voice {
       }
     });
 
+    // Sounds for other participants joining/leaving/screensharing
+    room.addListener("participantConnected", () => {
+      voiceNotifications.playJoin();
+    });
+
+    room.addListener("participantDisconnected", () => {
+      voiceNotifications.playLeave();
+    });
+
+    room.addListener("trackPublished", (publication) => {
+      if (publication.source === Track.Source.ScreenShare) {
+        voiceNotifications.playScreenshareStart();
+      }
+    });
+
+    room.addListener("trackUnpublished", (publication) => {
+      if (publication.source === Track.Source.ScreenShare) {
+        voiceNotifications.playScreenshareEnd();
+      }
+    });
+
     if (!auth) {
       let voiceServer = "worldwide";
       console.log(channel);

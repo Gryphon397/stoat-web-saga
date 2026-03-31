@@ -202,7 +202,7 @@ export function TextChannel(props: ChannelPageProps) {
 
             <MessageComposition
               channel={props.channel}
-              onMessageSend={() => jumpToBottomRef?.()}
+              onMessageSend={() => requestAnimationFrame(() => jumpToBottomRef?.())}
             />
           </main>
         }>
