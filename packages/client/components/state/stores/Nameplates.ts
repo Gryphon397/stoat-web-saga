@@ -1,3 +1,5 @@
+import { reconcile } from "solid-js/store";
+
 import { State } from "..";
 
 import { AbstractStore } from ".";
@@ -110,20 +112,21 @@ export class Nameplates extends AbstractStore<"nameplates", TypeNameplates> {
       const res = await fetch(NAMEPLATES_API);
       if (!res.ok) return;
       const data: Record<string, string> = await res.json();
-      this.set("userNameplates", data);
+      this.set("userNameplates", reconcile(data));
     } catch {
       // server unavailable
     }
   }
 
   async setNameplate(userId: string, nameplateId: string | null): Promise<void> {
-    const next = { ...this.get().userNameplates };
     if (nameplateId === null) {
+      // SolidJS stores merge rather than replace, so deleted keys must use reconcile
+      const next = { ...this.get().userNameplates };
       delete next[userId];
+      this.set("userNameplates", reconcile(next));
     } else {
-      next[userId] = nameplateId;
+      this.set("userNameplates", userId as never, nameplateId);
     }
-    this.set("userNameplates", next);
 
     try {
       await fetch(NAMEPLATES_API, {

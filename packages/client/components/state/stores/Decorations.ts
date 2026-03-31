@@ -1,3 +1,5 @@
+import { reconcile } from "solid-js/store";
+
 import { State } from "..";
 
 import { AbstractStore } from ".";
@@ -114,20 +116,21 @@ export class Decorations extends AbstractStore<"decorations", TypeDecorations> {
       const res = await fetch(DECORATIONS_API);
       if (!res.ok) return;
       const data: Record<string, string> = await res.json();
-      this.set("userDecorations", data);
+      this.set("userDecorations", reconcile(data));
     } catch {
       // server unavailable
     }
   }
 
   async setDecoration(userId: string, decorationId: string | null): Promise<void> {
-    const next = { ...this.get().userDecorations };
     if (decorationId === null) {
+      // SolidJS stores merge rather than replace, so deleted keys must use reconcile
+      const next = { ...this.get().userDecorations };
       delete next[userId];
+      this.set("userDecorations", reconcile(next));
     } else {
-      next[userId] = decorationId;
+      this.set("userDecorations", userId as never, decorationId);
     }
-    this.set("userDecorations", next);
 
     try {
       await fetch(DECORATIONS_API, {
