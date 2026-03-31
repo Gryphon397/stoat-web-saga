@@ -3,13 +3,14 @@ import { For, JSX, Show, splitProps } from "solid-js";
 import { useState } from "@revolt/state";
 import {
   TrackLoop,
+  useConnectionQuality,
   useEnsureParticipant,
   useIsMuted,
   useIsSpeaking,
   useTracks,
 } from "solid-livekit-components";
 
-import { Track } from "livekit-client";
+import { ConnectionQuality, Track } from "livekit-client";
 import { Channel, VoiceParticipant } from "stoat.js";
 import { cva } from "styled-system/css";
 import { styled } from "styled-system/jsx";
@@ -20,6 +21,7 @@ import { InRoom } from "@revolt/rtc";
 
 import { Avatar, Ripple, typography } from "../../design";
 import { Row } from "../../layout";
+import { Symbol } from "../../utils/Symbol";
 
 import { VoiceStatefulUserIcons } from "./VoiceStatefulUserIcons";
 
@@ -85,6 +87,7 @@ function ParticipantLive() {
   });
 
   const isSpeaking = useIsSpeaking(participant);
+  const quality = useConnectionQuality(participant);
 
   const screenShareTracks = useTracks(
     [{ source: Track.Source.ScreenShare, withPlaceholder: false }],
@@ -104,6 +107,7 @@ function ParticipantLive() {
       deafened={false}
       camera={false}
       screenshare={isScreensharing()}
+      quality={quality()}
       isLive
     />
   );
@@ -128,6 +132,16 @@ function ParticipantPreview(props: { participant: VoiceParticipant }) {
 /**
  * Component used for both variants
  */
+function qualityIcon(q: ConnectionQuality | undefined): { icon: string; color: string; label: string } | null {
+  switch (q) {
+    case ConnectionQuality.Excellent: return { icon: "signal_cellular_4_bar", color: "#4caf50", label: "Excellent connection" };
+    case ConnectionQuality.Good:      return { icon: "signal_cellular_3_bar", color: "#8bc34a", label: "Good connection" };
+    case ConnectionQuality.Poor:      return { icon: "network_check",         color: "#ff9800", label: "Poor connection" };
+    case ConnectionQuality.Lost:      return { icon: "wifi_off",              color: "#f44336", label: "Connection lost" };
+    default:                          return null;
+  }
+}
+
 function CommonUser(props: {
   userId: string;
   speaking: boolean;
@@ -135,6 +149,7 @@ function CommonUser(props: {
   deafened: boolean;
   camera: boolean;
   screenshare: boolean;
+  quality?: ConnectionQuality;
   isLive?: boolean;
 }) {
   const [iconProps, rest] = splitProps(props, [
@@ -177,6 +192,16 @@ function CommonUser(props: {
         <Row gap="sm">
           <Show when={iconProps.screenshare}>
             <LiveBadge>LIVE</LiveBadge>
+          </Show>
+          <Show when={qualityIcon(rest.quality)}>
+            {(_) => {
+              const q = qualityIcon(rest.quality)!;
+              return (
+                <span title={q.label} style={{ color: q.color, display: "flex", "align-items": "center" }}>
+                  <Symbol size={14}>{q.icon}</Symbol>
+                </span>
+              );
+            }}
           </Show>
           <VoiceStatefulUserIcons {...iconProps} userId={rest.userId} />
         </Row>

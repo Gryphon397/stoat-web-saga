@@ -76,7 +76,6 @@ const Call = styled("div", {
  * Show a grid of participants
  */
 function Participants() {
-  console.log('[badge] Participants() rendered');
   const allTracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: true },
@@ -85,12 +84,7 @@ function Participants() {
     { onlySubscribed: false },
   );
   // Hide hidden viewer connections opened by the popout window
-  const tracks = () => {
-    const all = allTracks();
-    const filtered = all.filter((t) => !t.participant.identity.startsWith("viewer-"));
-    console.log('[badge] tracks update — allTracks:', all.length, 'filtered:', filtered.length, filtered.map(t => t.participant.identity));
-    return filtered;
-  };
+  const tracks = () => allTracks().filter((t) => !t.participant.identity.startsWith("viewer-"));
 
   return (
     <Grid>
@@ -152,7 +146,6 @@ function UserTile() {
 
   const isSpeaking = useIsSpeaking(participant);
   const connectionQuality = useConnectionQuality(participant);
-  console.log('[badge] UserTile rendered for', participant.identity, 'quality signal:', connectionQuality());
   const isDeafened = () =>
     !voice.channel()?.voiceParticipants.get(participant.identity)?.isReceiving();
 
@@ -651,7 +644,6 @@ const OverlayIconButton = styled("button", {
  * Fixed top-right corner connection quality indicator on participant tiles
  */
 function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
-  console.log('[badge] ConnectionQualityBadge rendered, quality =', props.quality);
   const icon = () => {
     switch (props.quality) {
       case ConnectionQuality.Excellent: return "signal_cellular_4_bar";

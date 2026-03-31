@@ -19,9 +19,7 @@ export function InRoom(props: {
   const condition = () => {
     const r = room?.();
     const s = voice.state();
-    const ok = !!r && s === "CONNECTED" && (!props.channelId || props.channelId === voice.channel()?.id);
-    console.log('[badge] InRoom check — room:', !!r, 'state:', s, 'ok:', ok);
-    return ok;
+    return !!r && s === "CONNECTED" && (!props.channelId || props.channelId === voice.channel()?.id);
   };
 
   return (
