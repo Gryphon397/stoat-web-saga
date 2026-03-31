@@ -556,6 +556,7 @@ const tile = cva({
     gridTemplateColumns: "minmax(0, 1fr)",
     transition: "outline-color 60ms ease",
     borderRadius: "var(--borderRadius-lg)",
+    position: "relative",
 
     color: "var(--md-sys-color-on-surface)",
     background: "#0002",

@@ -37,15 +37,6 @@ export function NameplatePicker() {
       </Text>
 
       <Grid>
-        {/* "None" tile */}
-        <NameplateTile
-          selected={currentNameplateId() === null}
-          onClick={() => select(null)}
-          title="None"
-          wide
-        >
-          <NoneLabel>None</NoneLabel>
-        </NameplateTile>
         <For each={entries()}>
           {(entry) => (
             <NameplateTile
@@ -64,6 +55,15 @@ export function NameplatePicker() {
           )}
         </For>
       </Grid>
+
+      {/* "None" always visible below the grid */}
+      <NameplateTile
+        selected={currentNameplateId() === null}
+        onClick={() => select(null)}
+        title="None"
+      >
+        <NoneLabel>No nameplate</NoneLabel>
+      </NameplateTile>
 
       <Show when={currentNameplateId()}>
         <Row gap="sm" align>
@@ -97,7 +97,6 @@ function NameplateTile(props: {
   selected: boolean;
   onClick: () => void;
   title: string;
-  wide?: boolean;
   children: import("solid-js").JSXElement;
 }) {
   return (
