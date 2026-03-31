@@ -108,25 +108,33 @@ export class Nameplates extends AbstractStore<"nameplates", TypeNameplates> {
   }
 
   async fetchFromServer(): Promise<void> {
+    // Apply cached mapping immediately so nameplates render without waiting for Redis
+    try {
+      const cached = localStorage.getItem("stoat:nameplates");
+      if (cached) this.set("userNameplates", reconcile(JSON.parse(cached)));
+    } catch { /* corrupt cache — ignore */ }
+
     try {
       const res = await fetch(NAMEPLATES_API);
       if (!res.ok) return;
       const data: Record<string, string> = await res.json();
       this.set("userNameplates", reconcile(data));
+      try { localStorage.setItem("stoat:nameplates", JSON.stringify(data)); } catch {}
     } catch {
       // server unavailable
     }
   }
 
   async setNameplate(userId: string, nameplateId: string | null): Promise<void> {
+    // SolidJS stores merge rather than replace, so deleted keys must use reconcile
+    const next = { ...this.get().userNameplates };
     if (nameplateId === null) {
-      // SolidJS stores merge rather than replace, so deleted keys must use reconcile
-      const next = { ...this.get().userNameplates };
       delete next[userId];
-      this.set("userNameplates", reconcile(next));
     } else {
-      this.set("userNameplates", userId as never, nameplateId);
+      next[userId] = nameplateId;
     }
+    this.set("userNameplates", reconcile(next));
+    try { localStorage.setItem("stoat:nameplates", JSON.stringify(next)); } catch {}
 
     try {
       await fetch(NAMEPLATES_API, {

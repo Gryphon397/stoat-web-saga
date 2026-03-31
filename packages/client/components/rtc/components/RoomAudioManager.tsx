@@ -34,11 +34,8 @@ export function RoomAudioManager() {
   );
 
   createEffect(() => {
-    const tracks = filteredTracks();
-    console.info("[rtc] filtered tracks", filteredTracks());
-    for (const track of tracks) {
+    for (const track of filteredTracks()) {
       (track.publication as RemoteTrackPublication).setSubscribed(true);
-      console.info(track.publication);
     }
   });
 

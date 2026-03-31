@@ -236,6 +236,9 @@ class Voice {
     const room = new Room({
       activeSpeakerInterval: 100,
       dynacast: true,
+      publishDefaults: {
+        audioPreset: { maxBitrate: 128_000 },
+      },
       audioCaptureDefaults: {
         deviceId: this.#settings.preferredAudioInputDevice,
         // Disable browser EC when DF3 is active — the two algorithms
@@ -289,8 +292,17 @@ class Voice {
         });
       debugLog("PTT-WEB", "Room connected");
       this.#setState("CONNECTED");
-      console.log("[VoiceNotifications] Playing self join sound");
       voiceNotifications.playSelfJoin();
+    });
+
+    room.addListener("reconnecting", () => {
+      debugLog("PTT-WEB", "Room reconnecting");
+      this.#setState("RECONNECTING");
+    });
+
+    room.addListener("reconnected", () => {
+      debugLog("PTT-WEB", "Room reconnected");
+      this.#setState("CONNECTED");
     });
 
     room.addListener("disconnected", () => {

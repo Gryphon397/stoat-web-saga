@@ -112,25 +112,33 @@ export class Decorations extends AbstractStore<"decorations", TypeDecorations> {
   }
 
   async fetchFromServer(): Promise<void> {
+    // Apply cached mapping immediately so decorations render without waiting for Redis
+    try {
+      const cached = localStorage.getItem("stoat:decorations");
+      if (cached) this.set("userDecorations", reconcile(JSON.parse(cached)));
+    } catch { /* corrupt cache — ignore */ }
+
     try {
       const res = await fetch(DECORATIONS_API);
       if (!res.ok) return;
       const data: Record<string, string> = await res.json();
       this.set("userDecorations", reconcile(data));
+      try { localStorage.setItem("stoat:decorations", JSON.stringify(data)); } catch {}
     } catch {
       // server unavailable
     }
   }
 
   async setDecoration(userId: string, decorationId: string | null): Promise<void> {
+    // SolidJS stores merge rather than replace, so deleted keys must use reconcile
+    const next = { ...this.get().userDecorations };
     if (decorationId === null) {
-      // SolidJS stores merge rather than replace, so deleted keys must use reconcile
-      const next = { ...this.get().userDecorations };
       delete next[userId];
-      this.set("userDecorations", reconcile(next));
     } else {
-      this.set("userDecorations", userId as never, decorationId);
+      next[userId] = decorationId;
     }
+    this.set("userDecorations", reconcile(next));
+    try { localStorage.setItem("stoat:decorations", JSON.stringify(next)); } catch {}
 
     try {
       await fetch(DECORATIONS_API, {
