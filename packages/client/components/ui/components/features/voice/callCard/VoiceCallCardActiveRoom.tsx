@@ -214,6 +214,8 @@ function UserTile() {
         </Match>
       </Switch>
 
+      <ConnectionQualityBadge quality={connectionQuality()} />
+
       <Overlay>
         <OverlayInner>
           <OverflowingText>{user().username}</OverflowingText>
@@ -225,7 +227,6 @@ function UserTile() {
           <Show when={isTrackReference(track) && !isVideoMuted()}>
             <Symbol size={18}>fullscreen</Symbol>
           </Show>
-          <ConnectionQualityBadge quality={connectionQuality()} />
         </OverlayInner>
       </Overlay>
     </div>
@@ -641,7 +642,7 @@ const OverlayIconButton = styled("button", {
 });
 
 /**
- * Small connection quality indicator shown in participant tiles
+ * Fixed top-right corner connection quality indicator on participant tiles
  */
 function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
   const icon = () => {
@@ -676,7 +677,21 @@ function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
 
   return (
     <Show when={icon()}>
-      <span title={label()} style={{ color: color(), display: "flex", "align-items": "center" }}>
+      <span
+        title={label()}
+        style={{
+          position: "absolute",
+          top: "6px",
+          right: "6px",
+          "z-index": "2",
+          color: color(),
+          display: "flex",
+          "align-items": "center",
+          "background": "rgba(0,0,0,0.45)",
+          "border-radius": "4px",
+          padding: "2px",
+        }}
+      >
         <Symbol size={14}>{icon()!}</Symbol>
       </span>
     </Show>
