@@ -38,7 +38,7 @@ export function VoiceProcessingOptions() {
             (state.voice.autoGainControl = !state.voice.autoGainControl)
           }
         >
-          <Trans>Automatic Gain Control</Trans>
+          Automatic Gain Control
         </CategoryButton>
       </CategoryButton.Group>
     </Column>
