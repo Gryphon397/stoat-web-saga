@@ -699,9 +699,10 @@ export function VoiceContext(props: { children: JSX.Element }) {
       debugLog("PTT-WEB", "Current PTT state from desktop:", currentState.active ? "ON" : "OFF");
 
       const handleStateChange = (e: { active: boolean }) => {
+        if (!state.voice.pushToTalkEnabled) return;
         debugLog("PTT-WEB", "Received state change from desktop:", e.active ? "ON" : "OFF");
         debugLog("PTT-WEB", "Current room:", voice.room() ? "connected" : "not connected");
-        
+
         // e.active = true means PTT key is pressed (mic should be ON/unmuted)
         // e.active = false means PTT key is released (mic should be OFF/muted)
         if (voice.room()) {
