@@ -238,6 +238,11 @@ class Voice {
       dynacast: true,
       publishDefaults: {
         audioPreset: { maxBitrate: 128_000 },
+        codecOptions: {
+          opusFec: true,       // Forward Error Correction — reconstruct dropped packets
+          opusDtx: false,      // Keep transmitting during silence (no glitch on speech resume)
+          opusMaxPlaybackRate: 48000,
+        },
       },
       audioCaptureDefaults: {
         deviceId: this.#settings.preferredAudioInputDevice,
@@ -397,6 +402,7 @@ class Voice {
       const options: AudioCaptureOptions = {
         noiseSuppression: false,
         echoCancellation: nsEnabled ? false : ecEnabled,
+        autoGainControl: this.#settings.autoGainControl,
         deviceId: this.#settings.preferredAudioInputDevice,
       };
       await track.restartTrack(options);
@@ -838,11 +844,11 @@ export function VoiceContext(props: { children: JSX.Element }) {
     voiceNotifications.setSoundEnabled("ptt_deactivate", soundPttDeactivate);
   });
 
-  // live-update mic constraints when noise suppression / echo cancellation changes
+  // live-update mic constraints when noise suppression / echo cancellation / AGC changes
   createEffect(() => {
-    // track these reactively
     state.voice.noiseSupression;
     state.voice.echoCancellation;
+    state.voice.autoGainControl;
     voice.applyMicConstraints();
   });
 
