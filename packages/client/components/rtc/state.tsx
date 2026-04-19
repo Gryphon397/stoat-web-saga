@@ -13,7 +13,7 @@ import {
 } from "solid-js";
 import { RoomContext } from "solid-livekit-components";
 
-import { AudioCaptureOptions, LocalAudioTrack, Room, Track, VideoPresets } from "livekit-client";
+import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, Participant, RemoteAudioTrack, Room, Track, TrackPublication, VideoPresets } from "livekit-client";
 import { DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
 import { voiceNotifications } from "./VoiceNotifications";
 
@@ -163,6 +163,100 @@ function getPcmFeederWorkletUrl(): string {
   return pcmFeederWorkletUrl;
 }
 
+/**
+ * Print WebRTC stats for all active audio tracks to the browser console.
+ * Called by window.stoatDiag() and automatically every 30s while connected.
+ */
+// Track previous concealed sample counts to compute per-interval deltas
+const _prevConcealed = new Map<string, number>();
+// Track previous byte counts + timestamps to compute kbps
+const _prevBytesSent = new Map<string, { bytes: number; ts: number }>();
+
+async function printVoiceStats(room: Room) {
+  const ts = new Date().toLocaleTimeString();
+  console.group(`[Voice Diagnostics] ${ts}`);
+
+  const local = room.localParticipant;
+  console.log(`Local participant: ${local.identity} | quality=${local.connectionQuality}`);
+
+  // Upload: local microphone RTCRtpSender stats
+  const micPub = local.getTrackPublication(Track.Source.Microphone);
+  if (micPub?.track) {
+    try {
+      const sender = (micPub.track as any)?.sender as RTCRtpSender | undefined;
+      if (sender) {
+        const stats = await sender.getStats();
+        stats.forEach((r) => {
+          if (r.type === "outbound-rtp" && r.kind === "audio") {
+            const ulKey = "local-upload";
+            const ulNow = Date.now();
+            const ulPrev = _prevBytesSent.get(ulKey);
+            const ulKbps = ulPrev
+              ? (((r.bytesSent - ulPrev.bytes) * 8) / ((ulNow - ulPrev.ts) / 1000) / 1000).toFixed(1)
+              : "—";
+            _prevBytesSent.set(ulKey, { bytes: r.bytesSent, ts: ulNow });
+            console.log(`  Upload mic: packetsSent=${r.packetsSent}, bytesSent=${r.bytesSent}, kbps=${ulKbps}`);
+          }
+          if (r.type === "remote-inbound-rtp") {
+            const jitter = ((r.jitter ?? 0) * 1000).toFixed(1);
+            const rttRaw = (r.roundTripTime ?? 0) * 1000;
+            const rtt = rttRaw > 0 && rttRaw < 5000 ? `${rttRaw.toFixed(0)}ms` : "pending";
+            const loss = ((r.fractionLost ?? 0) * 100).toFixed(1);
+            console.log(`  Upload quality (server sees): RTT=${rtt}, jitter=${jitter}ms, loss=${loss}%`);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("  Could not get mic sender stats:", e);
+    }
+  } else {
+    console.log("  Mic: not publishing");
+  }
+
+  // Download: per-remote-participant audio receiver stats
+  const remotes = Array.from(room.remoteParticipants.values());
+  if (remotes.length === 0) {
+    console.log("  No remote participants");
+  }
+  for (const p of remotes) {
+    const pub = p.getTrackPublication(Track.Source.Microphone);
+    const q = p.connectionQuality;
+    if (pub?.track) {
+      try {
+        const receiver = (pub.track as RemoteAudioTrack)?.receiver as RTCRtpReceiver | undefined;
+        if (receiver) {
+          const stats = await receiver.getStats();
+          stats.forEach((r) => {
+            if (r.type === "inbound-rtp" && r.kind === "audio") {
+              const jitter = ((r.jitter ?? 0) * 1000).toFixed(1);
+              const total = (r.packetsReceived ?? 0) + (r.packetsLost ?? 0);
+              const loss = total > 0 ? ((r.packetsLost ?? 0) / total * 100).toFixed(1) : "0.0";
+              const concealedNow = r.concealedSamples ?? 0;
+              const concealedPrev = _prevConcealed.get(p.identity) ?? concealedNow;
+              const concealedDelta = concealedNow - concealedPrev;
+              _prevConcealed.set(p.identity, concealedNow);
+              const dlKey = `dl-${p.identity}`;
+              const dlNow = Date.now();
+              const dlPrev = _prevBytesSent.get(dlKey);
+              const dlKbps = dlPrev
+                ? (((r.bytesReceived - dlPrev.bytes) * 8) / ((dlNow - dlPrev.ts) / 1000) / 1000).toFixed(1)
+                : "—";
+              _prevBytesSent.set(dlKey, { bytes: r.bytesReceived, ts: dlNow });
+              console.log(`  ${p.identity}: quality=${q}, jitter=${jitter}ms, loss=${loss}%, concealed/interval=${concealedDelta}, dl=${dlKbps}kbps, muted=${pub.isMuted}`);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn(`  Could not get receiver stats for ${p.identity}:`, e);
+      }
+    } else {
+      console.log(`  ${p.identity}: quality=${q}, no audio track`);
+    }
+  }
+
+  console.groupEnd();
+}
+
 class Voice {
   #settings: VoiceSettings;
 
@@ -189,6 +283,9 @@ class Voice {
 
   #livekitUrl = "";
   get livekitUrl() { return this.#livekitUrl; }
+
+  // Noise floor injection AudioContext
+  #noiseCtx: AudioContext | null = null;
 
   // Per-process audio capture state
   #appAudioCtx: AudioContext | null = null;
@@ -238,9 +335,11 @@ class Voice {
       dynacast: true,
       publishDefaults: {
         audioPreset: { maxBitrate: 128_000 },
+        dtx: false,            // Disable DTX at the signaling level (top-level v2 field)
+        red: true,             // Redundant Audio Data — piggybacks previous frame for loss recovery
         codecOptions: {
           opusFec: true,       // Forward Error Correction — reconstruct dropped packets
-          opusDtx: false,      // Keep transmitting during silence (no glitch on speech resume)
+          opusDtx: false,      // Disable DTX at the codec level (belt-and-suspenders with dtx:false above)
           opusMaxPlaybackRate: 48000,
         },
       },
@@ -294,6 +393,7 @@ class Voice {
               console.warn("[Voice] ❌ DeepFilterNet3 failed to start:", e);
             }
           }
+          await this.#applyNoiseFloor();
         });
       debugLog("PTT-WEB", "Room connected");
       this.#setState("CONNECTED");
@@ -305,14 +405,21 @@ class Voice {
       this.#setState("RECONNECTING");
     });
 
-    room.addListener("reconnected", () => {
+    room.addListener("reconnected", async () => {
       debugLog("PTT-WEB", "Room reconnected");
       this.#setState("CONNECTED");
+      // Small delay to let LiveKit fully re-negotiate senders before tapping them.
+      // Without this, #applyNoiseFloor() can return early (no sender yet) and
+      // leave DTX active for the remainder of the call.
+      await new Promise((r) => setTimeout(r, 500));
+      await this.#applyNoiseFloor();
     });
 
     room.addListener("disconnected", () => {
       debugLog("PTT-WEB", "Room disconnected");
       this.#setState("DISCONNECTED");
+      _prevConcealed.clear();
+      _prevBytesSent.clear();
     });
 
     // When the shared window closes, LiveKit unpublishes the track automatically.
@@ -345,17 +452,29 @@ class Voice {
       }
     });
 
+    room.addListener("connectionQualityChanged", (quality: ConnectionQuality, participant: Participant) => {
+      console.log(`[Voice] Quality: ${participant.identity} → ${quality}`);
+    });
+
+    room.addListener("trackMuted", (publication: TrackPublication, participant: Participant) => {
+      if (publication.kind === "audio") {
+        console.log(`[Voice] ${participant.identity} muted ${publication.source === Track.Source.Microphone ? "mic" : "audio"}`);
+      }
+    });
+
+    room.addListener("trackUnmuted", (publication: TrackPublication, participant: Participant) => {
+      if (publication.kind === "audio") {
+        console.log(`[Voice] ${participant.identity} unmuted ${publication.source === Track.Source.Microphone ? "mic" : "audio"}`);
+      }
+    });
+
     if (!auth) {
       let voiceServer = "worldwide";
-      console.log(channel);
-      console.log(channel.server);
-      console.log(channel.server?.description);
       if (channel.server?.description) {
         const descSplits = channel.server.description.split("\n");
         const lastLine = descSplits[descSplits?.length - 1];
         if (lastLine.startsWith("voice-server:")) {
           voiceServer = lastLine.replace("voice-server:", "");
-          console.log(voiceServer);
         }
       }
       auth = await channel.joinCall(voiceServer);
@@ -423,11 +542,66 @@ class Voice {
     } catch (e) {
       console.warn("[Voice] ❌ DF3 processor error:", e);
     }
+
+    await this.#applyNoiseFloor();
+  }
+
+  async #applyNoiseFloor() {
+    // Clean up any previous noise context
+    if (this.#noiseCtx) {
+      await this.#noiseCtx.close().catch(() => {});
+      this.#noiseCtx = null;
+    }
+
+    const room = this.room();
+    if (!room) return;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+    const track = pub?.track as LocalAudioTrack | undefined;
+    if (!track) return;
+    const sender = track.sender;
+    if (!sender) return;
+
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    this.#noiseCtx = ctx;
+
+    // Tap the current track output (raw mic, or DF3-processed if active)
+    const source = ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+    const destination = ctx.createMediaStreamDestination();
+    source.connect(destination);
+
+    // Looping 0.5s broadband white noise at ~-73 dBFS.
+    // This keeps the Opus encoder's VAD active so DTX never fires during silence.
+    // NOTE: the previous sub-bass (<80 Hz, gain=0.0002) approach had a math bug —
+    // the 80 Hz LPF attenuated the signal by ~26 dB before the gain node, producing
+    // ~-104 dBFS output (below the Opus VAD threshold of ~-78 dBFS), so DTX was
+    // still activating. Broadband noise at 0.0004 gain gives ~-73 dBFS RMS, safely
+    // above the threshold. At -73 dBFS it is masked by speech and inaudible during
+    // calls; there may be a faint hiss during extended silence but this is acceptable.
+    const buf = ctx.createBuffer(1, ctx.sampleRate / 2, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = buf;
+    noiseSource.loop = true;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0.0004; // ~-73 dBFS RMS (above Opus DTX threshold)
+    noiseSource.connect(noiseGain);
+    noiseGain.connect(destination);
+    noiseSource.start();
+
+    await sender.replaceTrack(destination.stream.getAudioTracks()[0]);
+    console.log("[Voice] ✅ Noise floor active (broadband, ~-73 dBFS)");
   }
 
   disconnect() {
     const room = this.room();
     if (!room) return;
+
+    // Stop noise floor AudioContext
+    if (this.#noiseCtx) {
+      this.#noiseCtx.close().catch(() => {});
+      this.#noiseCtx = null;
+    }
 
     // Stop per-process audio capture if active
     this.#stopAppAudioCapture();
@@ -462,9 +636,15 @@ class Voice {
 
     this.#setMicrophone(room.localParticipant.isMicrophoneEnabled);
 
+    // Re-apply noise floor after unmute — setMicrophoneEnabled(true) creates a
+    // new sender, wiping the previous replaceTrack() and re-enabling DTX.
+    if (room.localParticipant.isMicrophoneEnabled) {
+      await this.#applyNoiseFloor();
+    }
+
     // only play sounds if PTT is disabled, or if PTT is enabled with notification sounds on
     const shouldPlaySound = !this.#settings.pushToTalkEnabled || this.#settings.pushToTalkNotificationSounds;
-    
+
     if (shouldPlaySound) {
       if (room.localParticipant.isMicrophoneEnabled) {
         voiceNotifications.playUnmute();
@@ -494,6 +674,11 @@ class Voice {
       await room.localParticipant.setMicrophoneEnabled(enabled);
       this.#setMicrophone(enabled);
       debugLog("PTT-WEB", "setMute() - mic state updated to:", enabled);
+
+      // Re-apply noise floor after unmute — new sender wipes the previous replaceTrack().
+      if (enabled) {
+        await this.#applyNoiseFloor();
+      }
       
       // only play sounds if PTT is disabled, or if PTT is enabled with notification sounds on
       const shouldPlaySound = !this.#settings.pushToTalkEnabled || this.#settings.pushToTalkNotificationSounds;
@@ -803,6 +988,30 @@ export function VoiceContext(props: { children: JSX.Element }) {
         currentClient.off("voiceChannelLeave", onLeave);
       });
     }
+
+    // Voice diagnostic helper: window.stoatDiag() in browser console
+    (window as any).stoatDiag = async () => {
+      const room = voice.room();
+      if (!room) {
+        console.log("[Voice Diagnostics] Not connected to a voice channel");
+        return;
+      }
+      await printVoiceStats(room);
+    };
+    console.log("[Voice] 🔍 Type window.stoatDiag() in the console to print voice stats");
+
+    // Auto-print stats every 30s while connected
+    const statsInterval = setInterval(async () => {
+      const room = voice.room();
+      if (room && voice.state() === "CONNECTED") {
+        await printVoiceStats(room);
+      }
+    }, 30_000);
+
+    onCleanup(() => {
+      clearInterval(statsInterval);
+      delete (window as any).stoatDiag;
+    });
   });
 
   // sync notification settings reactively

@@ -1,6 +1,5 @@
 import { Show } from "solid-js";
 
-import { Trans } from "@lingui-solid/solid/macro";
 import { css } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
@@ -41,7 +40,7 @@ export function PushToTalkSettings() {
     <Column gap="lg">
       <Column>
         <Text class="title" size="small">
-          <Trans id="ptt.settings.title">Push to Talk</Trans>
+          Push to Talk
         </Text>
 
         <CategoryButton.Group>
@@ -60,7 +59,7 @@ export function PushToTalkSettings() {
               syncToDesktop({ enabled: newValue });
             }}
           >
-            <Trans id="ptt.settings.enable">Enable Push to Talk</Trans>
+            Enable Push to Talk
           </CategoryButton>
         </CategoryButton.Group>
       </Column>
@@ -68,7 +67,7 @@ export function PushToTalkSettings() {
       <Show when={state.voice.pushToTalkEnabled}>
         <Column gap="md">
           <Text class="label">
-            <Trans id="ptt.settings.keybind">Push to Talk Keybind</Trans>
+            Push to Talk Keybind
           </Text>
           <KeybindInput
             value={state.voice.pushToTalkKeybind}
@@ -82,7 +81,7 @@ export function PushToTalkSettings() {
 
         <Column>
           <Text class="label">
-            <Trans id="ptt.settings.notifications">Notification Sounds</Trans>
+            Notification Sounds
           </Text>
           <CategoryButton.Group>
             <CategoryButton
@@ -100,17 +99,17 @@ export function PushToTalkSettings() {
                 syncToDesktop({ notificationSounds: newValue });
               }}
             >
-              <Trans id="ptt.settings.playMuteSounds">Play Mute/Unmute Sounds</Trans>
+              Play Mute/Unmute Sounds
             </CategoryButton>
           </CategoryButton.Group>
           <Text class="label" size="small">
-            <Trans id="ptt.settings.muteSoundsDescription">Play sounds when muting/unmuting with Push to Talk</Trans>
+            Play sounds when muting/unmuting with Push to Talk
           </Text>
         </Column>
 
         <Column>
           <Text class="label">
-            <Trans id="ptt.settings.mode">Mode</Trans>
+            Mode
           </Text>
           <CategoryButton.Group>
             <CategoryButton
@@ -128,17 +127,17 @@ export function PushToTalkSettings() {
                 syncToDesktop({ mode: newMode });
               }}
             >
-              <Trans id="ptt.settings.toggleMode">Enable Toggle Mode</Trans>
+              Enable Toggle Mode
             </CategoryButton>
           </CategoryButton.Group>
           <Text class="label" size="small">
-            <Trans id="ptt.settings.defaultHold">Default is Hold mode</Trans>
+            Default is Hold mode
           </Text>
         </Column>
 
         <Column gap="md">
           <Text class="label">
-            <Trans id="ptt.settings.releaseDelay">Release Delay</Trans>
+            Release Delay
           </Text>
           <Row gap="md">
             <SliderContainer>
