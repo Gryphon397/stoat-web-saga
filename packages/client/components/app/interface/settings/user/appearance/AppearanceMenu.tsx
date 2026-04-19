@@ -33,6 +33,33 @@ import {
 
 import MDPalette from "@material-design-icons/svg/outlined/palette.svg?component-solid";
 
+const THEME_PRESETS = [
+  {
+    id: "default",
+    label: "Default",
+    mode: "dark" as const,
+    accent: "#5470ec",
+    variant: "tonal_spot" as const,
+    contrast: 0.0,
+  },
+  {
+    id: "onyx",
+    label: "Onyx",
+    mode: "dark" as const,
+    accent: "#111214",
+    variant: "monochrome" as const,
+    contrast: 0.2,
+  },
+  {
+    id: "amoled",
+    label: "AMOLED",
+    mode: "dark" as const,
+    accent: "#000000",
+    variant: "monochrome" as const,
+    contrast: 0.0,
+  },
+];
+
 /**
  * All appearance options for the client
  */
@@ -55,6 +82,38 @@ export function AppearanceMenu() {
         <Text class="title" size="small">
           Colours
         </Text>
+
+        <Text class="label">Presets</Text>
+        <Row justify="stretch">
+          <For each={THEME_PRESETS}>
+            {(preset, i) => (
+              <Button
+                group={
+                  i() === 0
+                    ? "connected-start"
+                    : i() === THEME_PRESETS.length - 1
+                      ? "connected-end"
+                      : "connected"
+                }
+                groupActive={
+                  state.theme.mode === preset.mode &&
+                  state.theme.m3Accent === preset.accent &&
+                  state.theme.m3Variant === preset.variant &&
+                  state.theme.m3Contrast.toFixed(1) ===
+                    preset.contrast.toFixed(1)
+                }
+                onPress={() => {
+                  state.theme.setMode(preset.mode);
+                  state.theme.setM3Accent(preset.accent);
+                  state.theme.setM3Variant(preset.variant);
+                  state.theme.setM3Contrast(preset.contrast);
+                }}
+              >
+                {preset.label}
+              </Button>
+            )}
+          </For>
+        </Row>
 
         <Row justify="stretch">
           <Button

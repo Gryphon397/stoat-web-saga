@@ -33,7 +33,6 @@ import {
   typography,
 } from "@revolt/ui";
 import { VoiceChannelPreview } from "@revolt/ui/components/features/voice/VoiceChannelPreview";
-import { PersistentVoiceControls } from "@revolt/ui/components/features/voice/PersistentVoiceControls";
 import { createDragHandle } from "@revolt/ui/components/utils/Draggable";
 import { Symbol } from "@revolt/ui/components/utils/Symbol";
 
@@ -226,7 +225,7 @@ export const ServerSidebar = (props: Props) => {
       </Switch>
       <div
         use:invisibleScrollable
-        style={{ "flex-grow": 1 }}
+        style={{ "flex-grow": 1, "padding-bottom": "72px" }}
         use:floating={props.menuGenerator(props.server)}
       >
         <Draggable
@@ -250,7 +249,6 @@ export const ServerSidebar = (props: Props) => {
           )}
         </Draggable>
       </div>
-      <PersistentVoiceControls />
     </SidebarBase>
   );
 };

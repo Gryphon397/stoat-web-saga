@@ -3,7 +3,6 @@ import {
   isTrackReference,
   TrackLoop,
   TrackReference,
-  useConnectionQuality,
   useEnsureParticipant,
   useIsMuted,
   useIsSpeaking,
@@ -13,7 +12,7 @@ import {
   VideoTrack,
 } from "solid-livekit-components";
 
-import { ConnectionQuality, Track } from "livekit-client";
+import { Track } from "livekit-client";
 import { cva } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
@@ -145,7 +144,6 @@ function UserTile() {
   });
 
   const isSpeaking = useIsSpeaking(participant);
-  const connectionQuality = useConnectionQuality(participant);
   const isDeafened = () =>
     !voice.channel()?.voiceParticipants.get(participant.identity)?.isReceiving();
 
@@ -211,8 +209,6 @@ function UserTile() {
           />
         </Match>
       </Switch>
-
-      <ConnectionQualityBadge quality={connectionQuality()} />
 
       <Overlay>
         <OverlayInner>
@@ -640,57 +636,3 @@ const OverlayIconButton = styled("button", {
   },
 });
 
-/**
- * Fixed top-right corner connection quality indicator on participant tiles
- */
-function ConnectionQualityBadge(props: { quality: ConnectionQuality }) {
-  const icon = () => {
-    switch (props.quality) {
-      case ConnectionQuality.Excellent: return "signal_cellular_4_bar";
-      case ConnectionQuality.Good:      return "signal_cellular_3_bar";
-      case ConnectionQuality.Poor:      return "network_check";
-      case ConnectionQuality.Lost:      return "wifi_off";
-      default:                          return "signal_cellular_0_bar";
-    }
-  };
-
-  const color = () => {
-    switch (props.quality) {
-      case ConnectionQuality.Excellent: return "#4caf50";
-      case ConnectionQuality.Good:      return "#8bc34a";
-      case ConnectionQuality.Poor:      return "#ff9800";
-      case ConnectionQuality.Lost:      return "#f44336";
-      default:                          return "rgba(255,255,255,0.7)";
-    }
-  };
-
-  const label = () => {
-    switch (props.quality) {
-      case ConnectionQuality.Excellent: return "Excellent connection";
-      case ConnectionQuality.Good:      return "Good connection";
-      case ConnectionQuality.Poor:      return "Poor connection";
-      case ConnectionQuality.Lost:      return "Connection lost";
-      default:                          return "Measuring connection…";
-    }
-  };
-
-  return (
-    <span
-      title={label()}
-      style={{
-        position: "absolute",
-        top: "6px",
-        right: "6px",
-        "z-index": "2",
-        color: color(),
-        display: "flex",
-        "align-items": "center",
-        "background": "rgba(0,0,0,0.45)",
-        "border-radius": "4px",
-        padding: "2px",
-      }}
-    >
-      <Symbol size={18}>{icon()}</Symbol>
-    </span>
-  );
-}
