@@ -75,6 +75,18 @@ export default function AdvancedSettings() {
           )}
         </For>
       </CategoryButtonGroup>
+      <CategoryButtonGroup>
+        <CategoryButton
+          description="Unregisters the service worker and reloads the page. Use this if the app is showing an outdated version after an update."
+          onClick={async () => {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+            window.location.reload();
+          }}
+        >
+          Clear cache &amp; reload
+        </CategoryButton>
+      </CategoryButtonGroup>
     </Column>
   );
 }
