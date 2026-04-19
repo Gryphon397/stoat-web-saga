@@ -196,6 +196,16 @@ class VoiceNotificationManager {
     this.playSound("unmute");
   }
 
+  /** Local user deafened (reuses the mute sound) */
+  playDeafen(): void {
+    this.playSound("mute");
+  }
+
+  /** Local user undeafened (reuses the unmute sound) */
+  playUndeafen(): void {
+    this.playSound("unmute");
+  }
+
   /** Received a message notification */
   playMessageReceived(): void {
     this.playSound("receive_message");

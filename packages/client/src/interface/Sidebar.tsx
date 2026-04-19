@@ -7,11 +7,13 @@ import {
   ChannelContextMenu,
   ServerSidebarContextMenu,
 } from "@revolt/app";
-import { useClient, useUser } from "@revolt/client";
+import { useClient } from "@revolt/client";
 import { useModals } from "@revolt/modal";
 import { useLocation, useParams, useSmartParams } from "@revolt/routing";
 import { useState } from "@revolt/state";
 import { LAYOUT_SECTIONS } from "@revolt/state/stores/Layout";
+
+import { PersistentVoiceControls } from "@revolt/ui/components/features/voice/PersistentVoiceControls";
 
 import { HomeSidebar, ServerList, ServerSidebar } from "./navigation";
 
@@ -24,7 +26,6 @@ export const Sidebar = (props: {
    */
   menuGenerator: (t: ServerI | Channel) => JSX.Directives["floating"];
 }) => {
-  const user = useUser();
   const state = useState();
   const client = useClient();
   const { openModal } = useModals();
@@ -33,38 +34,42 @@ export const Sidebar = (props: {
   const location = useLocation();
 
   return (
-    <div style={{ display: "flex", "flex-shrink": 0 }}>
-      <ServerList
-        orderedServers={state.ordering.orderedServers(client())}
-        setServerOrder={state.ordering.setServerOrder}
-        unreadConversations={state.ordering
-          .orderedConversations(client())
-          .filter(
-            // TODO: muting channels
-            (channel) => channel.unread,
-          )}
-        user={user()!}
-        selectedServer={() => params.server}
-        onCreateOrJoinServer={() =>
-          openModal({
-            type: "create_or_join_server",
-            client: client(),
-          })
-        }
-        menuGenerator={props.menuGenerator}
-      />
-      <Show
-        when={
-          state.layout.getSectionState(LAYOUT_SECTIONS.PRIMARY_SIDEBAR, true) &&
-          !location.pathname.startsWith("/discover")
-        }
-      >
-        <Switch fallback={<Home />}>
-          <Match when={params.server}>
-            <Server />
-          </Match>
-        </Switch>
-      </Show>
+    <div style={{ display: "flex", "flex-direction": "column", "flex-shrink": 0, position: "relative" }}>
+      <div style={{ display: "flex", "flex-grow": 1, "min-height": 0 }}>
+        <ServerList
+          orderedServers={state.ordering.orderedServers(client())}
+          setServerOrder={state.ordering.setServerOrder}
+          unreadConversations={state.ordering
+            .orderedConversations(client())
+            .filter(
+              // TODO: muting channels
+              (channel) => channel.unread,
+            )}
+          selectedServer={() => params.server}
+          onCreateOrJoinServer={() =>
+            openModal({
+              type: "create_or_join_server",
+              client: client(),
+            })
+          }
+          menuGenerator={props.menuGenerator}
+        />
+        <Show
+          when={
+            state.layout.getSectionState(LAYOUT_SECTIONS.PRIMARY_SIDEBAR, true) &&
+            !location.pathname.startsWith("/discover")
+          }
+        >
+          <Switch fallback={<Home />}>
+            <Match when={params.server}>
+              <Server />
+            </Match>
+          </Switch>
+        </Show>
+      </div>
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, "z-index": 1 }}>
+        <PersistentVoiceControls />
+      </div>
     </div>
   );
 };

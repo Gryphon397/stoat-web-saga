@@ -13,9 +13,12 @@ type Props = AvatarProps & {
 /**
  * Avatar with an optional animated decoration overlay.
  * The decoration is rendered at 160% of the avatar size, centered (Discord standard).
+ * When a decoration is present the status overlay is re-rendered in a separate SVG
+ * layer AFTER the decoration image so it appears on top of the decoration.
  */
 export function DecoratedAvatar(props: Props) {
   const [local, avatarProps] = splitProps(props, ["decorationUrl"]);
+  const [overlayProp, innerAvatarProps] = splitProps(avatarProps, ["overlay"]);
 
   return (
     <Show when={local.decorationUrl} fallback={<Avatar {...avatarProps} />}>
@@ -31,7 +34,8 @@ export function DecoratedAvatar(props: Props) {
           height: "var(--av)",
         }}
       >
-        <Avatar {...avatarProps} />
+        {/* Render avatar without overlay so the decoration can go on top first */}
+        <Avatar {...innerAvatarProps} />
         <img
           src={local.decorationUrl!}
           style={{
@@ -46,6 +50,23 @@ export function DecoratedAvatar(props: Props) {
           }}
           draggable="false"
         />
+        {/* Re-render the overlay (status dot) in its own SVG on top of the decoration */}
+        <Show when={overlayProp.overlay}>
+          <svg
+            style={{
+              position: "absolute",
+              top: "0",
+              left: "0",
+              width: "var(--av)",
+              height: "var(--av)",
+              "pointer-events": "none",
+              overflow: "visible",
+            }}
+            viewBox="0 0 32 32"
+          >
+            {overlayProp.overlay}
+          </svg>
+        </Show>
       </div>
     </Show>
   );

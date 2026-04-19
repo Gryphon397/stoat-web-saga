@@ -45,7 +45,6 @@ export function VoiceChannelContent(props: ChannelPageProps) {
           <ScreenshareContent />
         </InRoom>
       </ScreenshareArea>
-      <div /> {/* bottom quarter — reserved */}
     </PageGrid>
   );
 }
@@ -83,24 +82,37 @@ type PlexTrack = {
 };
 
 // =============================================================================
-// Plex section — player view + search view
+// Plex section — collapsible player bar + expanded overlay
 // =============================================================================
 
 function PlexSection(props: { channelId: string }) {
+  // Detect duplicate mounts — if you see two of these in console, there are two instances
+  const _instanceId = Math.random().toString(36).slice(2, 6);
+  console.log(`[jukebox:${_instanceId}] PlexSection mounted`);
+  onCleanup(() => console.log(`[jukebox:${_instanceId}] PlexSection unmounted`));
+
   const jbUrl = (path: string) =>
     `${PLEX_PROXY}${path}?channel=${encodeURIComponent(props.channelId)}`;
   const [view, setView] = createSignal<"player" | "search">("player");
   const [jukebox, setJukebox] = createSignal<JukeboxState>({});
   const [tick, setTick] = createSignal(0);
+  const [collapsed, setCollapsed] = createSignal(true);
 
   let audioRef: HTMLAudioElement | undefined;
   let currentStreamKey = "";
+  // Track the updatedAt of the most recent patch we sent so stale SSE echoes
+  // from earlier actions can be ignored.
+  let _latestSentAt = 0;
 
   const [volume, setVolume] = createSignal(0.5);
-  createEffect(() => { if (audioRef) audioRef.volume = volume() * volume(); }); // squared curve
+  createEffect(() => { if (audioRef) audioRef.volume = volume() * volume(); });
+
+  // Memo so the tick interval only restarts on actual play/pause transitions,
+  // not on every unrelated jukebox field update.
+  const isPlaying = createMemo(() => jukebox().playing ?? false);
 
   createEffect(() => {
-    if (!jukebox().playing) return;
+    if (!isPlaying()) return;
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     onCleanup(() => clearInterval(id));
   });
@@ -137,6 +149,15 @@ function PlexSection(props: { channelId: string }) {
     const es = new EventSource(jbUrl("/jukebox/events"));
     es.onmessage = (e) => {
       const state: JukeboxState = JSON.parse(e.data);
+      // Skip SSEs that are older than our most recent local update.
+      // Without this guard, a stale SSE echo can overwrite a newer optimistic
+      // state — e.g. clicking pause then immediately getting the SSE from the
+      // preceding play re-starts the audio.
+      if (state.updatedAt != null && state.updatedAt < _latestSentAt) {
+        console.log(`[jukebox:${_instanceId}] SSE skipped (stale: ${state.updatedAt} < ${_latestSentAt})`);
+        return;
+      }
+      console.log(`[jukebox:${_instanceId}] SSE applied playing=${state.playing}`);
       setJukebox(state);
       syncAudio(state);
     };
@@ -164,8 +185,13 @@ function PlexSection(props: { channelId: string }) {
 
   async function updateJukebox(patch: Partial<JukeboxState>) {
     if (!PLEX_PROXY) return;
-    // Optimistic update — apply immediately so buttons respond on first click
-    setJukebox((prev) => ({ ...prev, ...patch }));
+    if (patch.updatedAt != null) _latestSentAt = patch.updatedAt;
+    else _latestSentAt = Math.max(_latestSentAt, Date.now());
+    // Build the full next state so we can drive audio immediately without
+    // waiting for the SSE echo (which may now be filtered as stale).
+    const nextState = { ...jukebox(), ...patch } as JukeboxState;
+    setJukebox(nextState);
+    syncAudio(nextState);
     await fetch(jbUrl("/jukebox/update"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -196,7 +222,7 @@ function PlexSection(props: { channelId: string }) {
   function pushHistory(current: JukeboxState): PlexTrack[] {
     if (!current.currentTrack) return current.history ?? [];
     const history = [...(current.history ?? []), current.currentTrack];
-    return history.slice(-50); // cap at 50
+    return history.slice(-50);
   }
 
   async function playNow(track: PlexTrack) {
@@ -235,7 +261,6 @@ function PlexSection(props: { channelId: string }) {
     await updateJukebox({ queue });
   }
 
-  const isPlaying = () => jukebox().playing ?? false;
   const duration = () => (jukebox().duration ?? 0) / 1000;
   const currentPosition = createMemo(() => {
     tick();
@@ -253,11 +278,29 @@ function PlexSection(props: { channelId: string }) {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   }
 
-  function togglePlayPause() {
+  // Per-action debounce: each action has its own timestamp so clicking different
+  // buttons in quick succession is still allowed, but a single button cannot
+  // fire twice within 250 ms (catches spurious double-fires from any source).
+  function makeGuarded(label: string, fn: () => void): (e: MouseEvent) => void {
+    let lastMs = 0;
+    return (e: MouseEvent) => {
+      e.stopPropagation();
+      const now = Date.now();
+      console.log(`[jukebox:${_instanceId}] ${label} raw click — gap=${now - lastMs}ms`);
+      if (now - lastMs < 250) {
+        console.warn(`[jukebox:${_instanceId}] ${label} BLOCKED by debounce`);
+        return;
+      }
+      lastMs = now;
+      fn();
+    };
+  }
+
+  const handleToggle = makeGuarded("toggle", () => {
     const j = jukebox();
     const nowPlaying = !isPlaying();
     const position = Math.round(currentPosition() * 1000);
-    // Drive audio directly in user-gesture context so the browser allows play()
+    console.log(`[jukebox:${_instanceId}] toggle → playing=${nowPlaying}`);
     if (audioRef) {
       if (nowPlaying) audioRef.play().catch(() => {});
       else { audioRef.pause(); audioRef.currentTime = currentPosition(); }
@@ -269,8 +312,12 @@ function PlexSection(props: { channelId: string }) {
       trackKey: j.trackKey,
       duration: j.duration,
     });
-  }
+  });
 
+  const handleNext = makeGuarded("next", playNext);
+  const handlePrev = makeGuarded("prev", playPrevious);
+
+  // Native range input — no custom element, no synthetic event concerns.
   function handleSeek(e: Event & { currentTarget: HTMLInputElement }) {
     const posSec = parseFloat(e.currentTarget.value);
     if (audioRef) audioRef.currentTime = posSec;
@@ -278,158 +325,230 @@ function PlexSection(props: { channelId: string }) {
   }
 
   return (
-    <MusicOuter>
+    <PlayerWrapper>
       <audio ref={audioRef} style={{ display: "none" }} />
 
-      {/* Left panel: player controls or search */}
-      <PlayerPanel>
-        <Show
-          when={view() === "player"}
-          fallback={
-            <SearchView
-              onBack={() => setView("player")}
-              onPlayNow={playNow}
-              onQueue={queueTrack}
-            />
-          }
-        >
-          <PlayerNavRow>
-            <NavButton title="Search music" onClick={() => setView("search")}>
-              <Symbol size={18}>search</Symbol>
-            </NavButton>
-          </PlayerNavRow>
+      <CollapsedBar>
+        <CollapsedMainRow>
+          <AlbumArtSmall>
+            <Show
+              when={jukebox().thumbUrl}
+              fallback={
+                <AlbumArtFallback>
+                  <Symbol size={20}>music_note</Symbol>
+                </AlbumArtFallback>
+              }
+            >
+              <img
+                src={`${PLEX_PROXY}/plex/art${jukebox().thumbUrl!}`}
+                style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                alt=""
+              />
+            </Show>
+          </AlbumArtSmall>
 
-          <PlayerArtWrap>
-            <AlbumArt>
-              <Show
-                when={jukebox().thumbUrl}
-                fallback={
-                  <AlbumArtFallback>
-                    <Symbol size={32}>music_note</Symbol>
-                  </AlbumArtFallback>
-                }
-              >
-                <img
-                  src={`${PLEX_PROXY}/plex/art${jukebox().thumbUrl!}`}
-                  style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                  alt="Album art"
-                />
+          <CollapsedTrackInfo>
+            <CollapsedTrackLine secondary>
+              {[jukebox().trackArtist, jukebox().trackAlbum].filter(Boolean).join(" — ") ||
+                (PLEX_PROXY ? "Search to find music" : "Not connected to Plex")}
+            </CollapsedTrackLine>
+            <CollapsedTrackLine>
+              {jukebox().trackTitle ?? (PLEX_PROXY ? "Nothing playing" : "")}
+              <Show when={jukebox().trackFormat}>
+                <CollapsedFormat>{jukebox().trackFormat}</CollapsedFormat>
               </Show>
-            </AlbumArt>
-          </PlayerArtWrap>
+            </CollapsedTrackLine>
+          </CollapsedTrackInfo>
 
-          <TrackInfo>
-            <TrackTitle>
-              {jukebox().trackTitle ?? (PLEX_PROXY ? "Nothing playing" : "Not connected to Plex")}
-            </TrackTitle>
-            <TrackMeta>
-              {jukebox().trackArtist ?? (PLEX_PROXY ? "Search to find music" : "Not connected to Plex")}
-            </TrackMeta>
-            <Show when={jukebox().trackAlbum}>
-              <TrackMeta>{jukebox().trackAlbum}</TrackMeta>
-            </Show>
-            <Show when={jukebox().trackFormat}>
-              <TrackFormat>{jukebox().trackFormat}</TrackFormat>
-            </Show>
-          </TrackInfo>
-
-          <PlayerControls>
+          <PlayerControls compact>
             <ControlButton title="Shuffle" disabled>
-              <Symbol size={20}>shuffle</Symbol>
+              <Symbol size={18}>shuffle</Symbol>
             </ControlButton>
             <ControlButton
               title="Previous"
               disabled={!PLEX_PROXY || (jukebox().history ?? []).length === 0}
-              onClick={playPrevious}
+              onClick={handlePrev}
             >
-              <Symbol size={24}>skip_previous</Symbol>
+              <Symbol size={22}>skip_previous</Symbol>
             </ControlButton>
             <PlayButton
-              onClick={togglePlayPause}
+              onClick={handleToggle}
               disabled={!PLEX_PROXY || !jukebox().trackKey}
             >
-              <Show when={isPlaying()} fallback={<Symbol size={28}>play_arrow</Symbol>}>
-                <Symbol size={28}>pause</Symbol>
+              <Show when={isPlaying()} fallback={<Symbol size={24}>play_arrow</Symbol>}>
+                <Symbol size={24}>pause</Symbol>
               </Show>
             </PlayButton>
             <ControlButton
               title="Next"
               disabled={!PLEX_PROXY || (jukebox().queue ?? []).length === 0}
-              onClick={playNext}
+              onClick={handleNext}
             >
-              <Symbol size={24}>skip_next</Symbol>
+              <Symbol size={22}>skip_next</Symbol>
             </ControlButton>
             <ControlButton title="Repeat" disabled>
-              <Symbol size={20}>repeat</Symbol>
+              <Symbol size={18}>repeat</Symbol>
             </ControlButton>
           </PlayerControls>
 
-          <ScrubberRow>
-            <TimeLabel>{formatTime(currentPosition())}</TimeLabel>
-            <Slider
+          <CollapsedVolumeRow>
+            <Symbol size={14}>volume_up</Symbol>
+            <CollapsedVolumeSlider
+              type="range"
               min={0}
-              max={duration() || 1}
-              step={1}
-              value={currentPosition()}
-              onInput={handleSeek}
-              labelFormatter={(v) => formatTime(v)}
+              max={1}
+              step={0.01}
+              value={volume()}
+              onInput={(e) => setVolume(parseFloat(e.currentTarget.value))}
+              title={`Volume: ${Math.round(volume() * 100)}%`}
             />
-            <TimeLabel>{formatTime(duration())}</TimeLabel>
-          </ScrubberRow>
-        </Show>
-      </PlayerPanel>
+          </CollapsedVolumeRow>
 
-      {/* Middle panel: queue */}
-      <QueuePanel>
-        <QueueHeader>Queue</QueueHeader>
-        <QueueList>
+          <CollapsedActions>
+            <NavButton
+              title="Search music"
+              onClick={(e) => { e.stopPropagation(); setCollapsed(false); setView("search"); }}
+            >
+              <Symbol size={16}>search</Symbol>
+            </NavButton>
+            <NavButton
+              title={collapsed() ? "Expand player" : "Collapse player"}
+              onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
+            >
+              <Symbol size={18}>{collapsed() ? "expand_more" : "expand_less"}</Symbol>
+            </NavButton>
+          </CollapsedActions>
+        </CollapsedMainRow>
+
+        <ScrubberRow>
+          <TimeLabel>{formatTime(currentPosition())}</TimeLabel>
+          <ScrubberInput
+            type="range"
+            min={0}
+            max={duration() || 1}
+            step={1}
+            value={currentPosition()}
+            onInput={handleSeek}
+            title={formatTime(currentPosition())}
+          />
+          <TimeLabel>{formatTime(duration())}</TimeLabel>
+        </ScrubberRow>
+      </CollapsedBar>
+
+      <ExpandedPanel style={{
+        "grid-template-rows": collapsed() ? "0fr" : "1fr",
+        visibility: collapsed() ? "hidden" : "visible",
+        transition: collapsed()
+          ? "grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 0.25s"
+          : "grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s",
+      }}>
+        <ExpandedPanelInner>
           <Show
-            when={(jukebox().queue ?? []).length > 0}
-            fallback={<QueueEmpty>No tracks queued</QueueEmpty>}
+            when={view() === "player"}
+            fallback={
+              <SearchView
+                onBack={() => setView("player")}
+                onPlayNow={playNow}
+                onQueue={queueTrack}
+              />
+            }
           >
-            <For each={jukebox().queue ?? []}>
-              {(track, i) => (
-                <QueueItem>
-                  <QueueItemInfo>
-                    <QueueItemTitle>{track.title}</QueueItemTitle>
-                    <QueueItemMeta>
-                      {[track.grandparentTitle, track.parentTitle]
-                        .filter(Boolean)
-                        .join(" — ")}
-                    </QueueItemMeta>
-                  </QueueItemInfo>
-                  <QueueItemRemove
-                    title="Remove from queue"
-                    onClick={() => {
-                      const q = [...(jukebox().queue ?? [])];
-                      q.splice(i(), 1);
-                      updateJukebox({ queue: q });
-                    }}
-                  >
-                    <Symbol size={14}>close</Symbol>
-                  </QueueItemRemove>
-                </QueueItem>
-              )}
-            </For>
-          </Show>
-        </QueueList>
-      </QueuePanel>
+            <MusicOuter>
+              <PlayerPanel>
+                <PlayerNavRow>
+                  <NavButton title="Search music" onClick={(e) => { e.stopPropagation(); setView("search"); }}>
+                    <Symbol size={18}>search</Symbol>
+                  </NavButton>
+                </PlayerNavRow>
 
-      {/* Right panel: volume */}
-      <VolumePanel>
-        <Symbol size={16}>volume_up</Symbol>
-        <VolumeSliderInput
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume()}
-          onInput={(e) => setVolume(parseFloat(e.currentTarget.value))}
-          title={`Volume: ${Math.round(volume() * 100)}%`}
-        />
-        <Symbol size={16}>volume_mute</Symbol>
-      </VolumePanel>
-    </MusicOuter>
+                <PlayerArtWrap>
+                  <AlbumArt>
+                    <Show
+                      when={jukebox().thumbUrl}
+                      fallback={
+                        <AlbumArtFallback>
+                          <Symbol size={32}>music_note</Symbol>
+                        </AlbumArtFallback>
+                      }
+                    >
+                      <img
+                        src={`${PLEX_PROXY}/plex/art${jukebox().thumbUrl!}`}
+                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                        alt="Album art"
+                      />
+                    </Show>
+                  </AlbumArt>
+                </PlayerArtWrap>
+
+                <TrackInfo>
+                  <TrackTitle>
+                    {jukebox().trackTitle ?? (PLEX_PROXY ? "Nothing playing" : "Not connected to Plex")}
+                  </TrackTitle>
+                  <TrackMeta>
+                    {jukebox().trackArtist ?? (PLEX_PROXY ? "Search to find music" : "Not connected to Plex")}
+                  </TrackMeta>
+                  <Show when={jukebox().trackAlbum}>
+                    <TrackMeta>{jukebox().trackAlbum}</TrackMeta>
+                  </Show>
+                  <Show when={jukebox().trackFormat}>
+                    <TrackFormat>{jukebox().trackFormat}</TrackFormat>
+                  </Show>
+                </TrackInfo>
+              </PlayerPanel>
+
+              <QueuePanel>
+                <QueueHeader>Queue</QueueHeader>
+                <QueueList>
+                  <Show
+                    when={(jukebox().queue ?? []).length > 0}
+                    fallback={<QueueEmpty>No tracks queued</QueueEmpty>}
+                  >
+                    <For each={jukebox().queue ?? []}>
+                      {(track, i) => (
+                        <QueueItem>
+                          <QueueItemInfo>
+                            <QueueItemTitle>{track.title}</QueueItemTitle>
+                            <QueueItemMeta>
+                              {[track.grandparentTitle, track.parentTitle]
+                                .filter(Boolean)
+                                .join(" — ")}
+                            </QueueItemMeta>
+                          </QueueItemInfo>
+                          <QueueItemRemove
+                            title="Remove from queue"
+                            onClick={() => {
+                              const q = [...(jukebox().queue ?? [])];
+                              q.splice(i(), 1);
+                              updateJukebox({ queue: q });
+                            }}
+                          >
+                            <Symbol size={14}>close</Symbol>
+                          </QueueItemRemove>
+                        </QueueItem>
+                      )}
+                    </For>
+                  </Show>
+                </QueueList>
+              </QueuePanel>
+
+              <VolumePanel>
+                <Symbol size={16}>volume_up</Symbol>
+                <VolumeSliderInput
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={volume()}
+                  onInput={(e) => setVolume(parseFloat(e.currentTarget.value))}
+                  title={`Volume: ${Math.round(volume() * 100)}%`}
+                />
+                <Symbol size={16}>volume_mute</Symbol>
+              </VolumePanel>
+            </MusicOuter>
+          </Show>
+        </ExpandedPanelInner>
+      </ExpandedPanel>
+    </PlayerWrapper>
   );
 }
 
@@ -821,13 +940,148 @@ const PageGrid = styled("div", {
     flexGrow: 1,
     minWidth: 0,
     minHeight: 0,
-    display: "grid",
-    gridTemplateRows: "1fr 2fr 1fr",
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
     marginInline: "var(--gap-md)",
     marginBlockEnd: "var(--gap-md)",
     borderRadius: "var(--borderRadius-xl)",
     background: "var(--md-sys-color-surface-container-lowest)",
     overflow: "hidden",
+  },
+});
+
+// ── Collapsed bar ─────────────────────────────────────────────────────────────
+
+const CollapsedBar = styled("div", {
+  base: {
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--gap-xs)",
+    padding: "var(--gap-sm) var(--gap-md)",
+    borderBottom: "1px solid var(--md-sys-color-outline-variant)",
+    zIndex: 1,
+  },
+});
+
+const CollapsedMainRow = styled("div", {
+  base: {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--gap-md)",
+    minWidth: 0,
+  },
+});
+
+const AlbumArtSmall = styled("div", {
+  base: {
+    flexShrink: 0,
+    width: "48px",
+    height: "48px",
+    borderRadius: "var(--borderRadius-sm)",
+    overflow: "hidden",
+    background: "var(--md-sys-color-surface-container-high)",
+  },
+});
+
+const CollapsedTrackInfo = styled("div", {
+  base: {
+    flexGrow: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+});
+
+const CollapsedTrackLine = styled("div", {
+  base: {
+    fontSize: "13px",
+    fontWeight: "500",
+    color: "var(--md-sys-color-on-surface)",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+    display: "flex",
+    alignItems: "baseline",
+    gap: "4px",
+  },
+  variants: {
+    secondary: {
+      true: {
+        fontSize: "11px",
+        fontWeight: "400",
+        color: "var(--md-sys-color-on-surface-variant)",
+      },
+    },
+  },
+});
+
+const CollapsedFormat = styled("span", {
+  base: {
+    fontSize: "11px",
+    fontWeight: "500",
+    color: "var(--md-sys-color-primary)",
+    letterSpacing: "0.04em",
+    flexShrink: 0,
+  },
+});
+
+const CollapsedVolumeRow = styled("div", {
+  base: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--gap-xs)",
+    color: "var(--md-sys-color-on-surface-variant)",
+  },
+});
+
+const CollapsedVolumeSlider = styled("input", {
+  base: {
+    width: "80px",
+    cursor: "pointer",
+    accentColor: "var(--md-sys-color-primary)",
+  },
+});
+
+const CollapsedActions = styled("div", {
+  base: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--gap-xs)",
+  },
+});
+
+// ── Player wrapper + animated expand panel ────────────────────────────────────
+
+const PlayerWrapper = styled("div", {
+  base: {
+    flexShrink: 0,
+    position: "relative",
+    zIndex: 5,
+  },
+});
+
+const ExpandedPanel = styled("div", {
+  base: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    display: "grid",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+  },
+});
+
+const ExpandedPanelInner = styled("div", {
+  base: {
+    minHeight: 0,
+    overflow: "hidden",
+    background: "var(--md-sys-color-surface-container-lowest)",
   },
 });
 
@@ -839,9 +1093,6 @@ const MusicOuter = styled("div", {
     gridTemplateColumns: "1fr 1fr 48px",
     gap: "var(--gap-md)",
     padding: "var(--gap-md) var(--gap-lg)",
-    minHeight: 0,
-    overflow: "hidden",
-    borderBottom: "1px solid var(--md-sys-color-outline-variant)",
   },
 });
 
@@ -852,8 +1103,6 @@ const PlayerPanel = styled("div", {
     alignItems: "stretch",
     gap: "var(--gap-sm)",
     minWidth: 0,
-    minHeight: 0,
-    overflow: "hidden",
   },
 });
 
@@ -862,6 +1111,7 @@ const PlayerNavRow = styled("div", {
     display: "flex",
     justifyContent: "flex-end",
     flexShrink: 0,
+    gap: "var(--gap-xs)",
   },
 });
 
@@ -901,9 +1151,8 @@ const QueueHeader = styled("div", {
 
 const QueueList = styled("div", {
   base: {
-    flexGrow: 1,
+    maxHeight: "220px",
     overflowY: "auto",
-    minHeight: 0,
     display: "flex",
     flexDirection: "column",
     gap: "2px",
@@ -1001,7 +1250,7 @@ const VolumeSliderInput = styled("input", {
   },
 });
 
-// ── Circular nav button (search / back) ───────────────────────────────────────
+// ── Circular nav button (search / back / collapse) ────────────────────────────
 
 const NavButton = styled("button", {
   base: {
@@ -1044,17 +1293,6 @@ const AlbumArtFallback = styled("div", {
     display: "grid",
     placeItems: "center",
     color: "var(--md-sys-color-on-surface-variant)",
-  },
-});
-
-const PlayerRight = styled("div", {
-  base: {
-    flexGrow: 1,
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    gap: "var(--gap-sm)",
   },
 });
 
@@ -1114,6 +1352,11 @@ const PlayerControls = styled("div", {
     flexShrink: 0,
     marginTop: "auto",
   },
+  variants: {
+    compact: {
+      true: { marginTop: "0" },
+    },
+  },
 });
 
 const ControlButton = styled("button", {
@@ -1163,6 +1406,15 @@ const ScrubberRow = styled("div", {
   },
 });
 
+const ScrubberInput = styled("input", {
+  base: {
+    flexGrow: 1,
+    cursor: "pointer",
+    accentColor: "var(--md-sys-color-primary)",
+    height: "4px",
+  },
+});
+
 const TimeLabel = styled("span", {
   base: {
     fontSize: "11px",
@@ -1182,6 +1434,7 @@ const SearchViewOuter = styled("div", {
     height: "100%",
     minHeight: 0,
     gap: "var(--gap-sm)",
+    padding: "var(--gap-md) var(--gap-lg)",
   },
 });
 
@@ -1331,8 +1584,8 @@ const SearchActionButton = styled("button", {
 
 const ScreenshareArea = styled("div", {
   base: {
+    flex: 1,
     minHeight: 0,
-    borderBottom: "1px solid var(--md-sys-color-outline-variant)",
   },
 });
 

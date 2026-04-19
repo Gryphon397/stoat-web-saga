@@ -67,7 +67,7 @@ export const HomeSidebar = (props: Props) => {
 
   return (
     <SidebarBase>
-      <div ref={scrollTargetElement} use:invisibleScrollable>
+      <div ref={scrollTargetElement} use:invisibleScrollable style={{ "padding-bottom": "72px" }}>
         <List>
           <SidebarTitle>
             <Trans>Conversations</Trans>

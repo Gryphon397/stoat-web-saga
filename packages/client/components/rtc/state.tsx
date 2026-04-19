@@ -444,7 +444,13 @@ class Voice {
   }
 
   async toggleDeafen() {
+    const wasDeafened = this.deafen();
     this.#setDeafen((s) => !s);
+    if (!wasDeafened) {
+      voiceNotifications.playDeafen();
+    } else {
+      voiceNotifications.playUndeafen();
+    }
   }
 
   async toggleMute() {
