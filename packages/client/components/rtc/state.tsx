@@ -167,17 +167,18 @@ function getPcmFeederWorkletUrl(): string {
  * Print WebRTC stats for all active audio tracks to the browser console.
  * Called by window.stoatDiag() and automatically every 30s while connected.
  */
-// Track previous concealed sample counts to compute per-interval deltas
 const _prevConcealed = new Map<string, number>();
-// Track previous byte counts + timestamps to compute kbps
+const _prevTotalSamples = new Map<string, number>();
 const _prevBytesSent = new Map<string, { bytes: number; ts: number }>();
+const _prevPacketsSent = new Map<string, { packets: number; ts: number }>();
 
-async function printVoiceStats(room: Room) {
+async function printVoiceStats(room: Room, noiseFloorActive: boolean, df3Active: boolean) {
   const ts = new Date().toLocaleTimeString();
   console.group(`[Voice Diagnostics] ${ts}`);
 
   const local = room.localParticipant;
   console.log(`Local participant: ${local.identity} | quality=${local.connectionQuality}`);
+  console.log(`  Pipeline: noise floor=${noiseFloorActive ? "✅ active" : "❌ inactive"} | DF3=${df3Active ? "✅ active" : "❌ inactive"}`);
 
   // Upload: local microphone RTCRtpSender stats
   const micPub = local.getTrackPublication(Track.Source.Microphone);
@@ -191,11 +192,16 @@ async function printVoiceStats(room: Room) {
             const ulKey = "local-upload";
             const ulNow = Date.now();
             const ulPrev = _prevBytesSent.get(ulKey);
+            const ulPpsPrev = _prevPacketsSent.get(ulKey);
             const ulKbps = ulPrev
               ? (((r.bytesSent - ulPrev.bytes) * 8) / ((ulNow - ulPrev.ts) / 1000) / 1000).toFixed(1)
               : "—";
+            const ulPps = ulPpsPrev
+              ? ((r.packetsSent - ulPpsPrev.packets) / ((ulNow - ulPpsPrev.ts) / 1000)).toFixed(1)
+              : "—";
             _prevBytesSent.set(ulKey, { bytes: r.bytesSent, ts: ulNow });
-            console.log(`  Upload mic: packetsSent=${r.packetsSent}, bytesSent=${r.bytesSent}, kbps=${ulKbps}`);
+            _prevPacketsSent.set(ulKey, { packets: r.packetsSent, ts: ulNow });
+            console.log(`  Upload mic: pps=${ulPps} (expect ~50), kbps=${ulKbps}, packetsSent=${r.packetsSent}`);
           }
           if (r.type === "remote-inbound-rtp") {
             const jitter = ((r.jitter ?? 0) * 1000).toFixed(1);
@@ -235,6 +241,11 @@ async function printVoiceStats(room: Room) {
               const concealedPrev = _prevConcealed.get(p.identity) ?? concealedNow;
               const concealedDelta = concealedNow - concealedPrev;
               _prevConcealed.set(p.identity, concealedNow);
+              const totalNow = r.totalSamplesReceived ?? 0;
+              const totalPrev = _prevTotalSamples.get(p.identity) ?? totalNow;
+              const totalDelta = totalNow - totalPrev;
+              const concealPct = totalDelta > 0 ? ((concealedDelta / totalDelta) * 100).toFixed(1) : "0.0";
+              _prevTotalSamples.set(p.identity, totalNow);
               const dlKey = `dl-${p.identity}`;
               const dlNow = Date.now();
               const dlPrev = _prevBytesSent.get(dlKey);
@@ -242,7 +253,7 @@ async function printVoiceStats(room: Room) {
                 ? (((r.bytesReceived - dlPrev.bytes) * 8) / ((dlNow - dlPrev.ts) / 1000) / 1000).toFixed(1)
                 : "—";
               _prevBytesSent.set(dlKey, { bytes: r.bytesReceived, ts: dlNow });
-              console.log(`  ${p.identity}: quality=${q}, jitter=${jitter}ms, loss=${loss}%, concealed/interval=${concealedDelta}, dl=${dlKbps}kbps, muted=${pub.isMuted}`);
+              console.log(`  ${p.identity}: quality=${q}, jitter=${jitter}ms, loss=${loss}%, concealed=${concealPct}%, dl=${dlKbps}kbps, muted=${pub.isMuted}`);
             }
           });
         }
@@ -283,6 +294,7 @@ class Voice {
 
   #livekitUrl = "";
   get livekitUrl() { return this.#livekitUrl; }
+  get noiseFloorActive() { return this.#noiseCtx !== null; }
 
   // Noise floor injection AudioContext
   #noiseCtx: AudioContext | null = null;
@@ -419,7 +431,9 @@ class Voice {
       debugLog("PTT-WEB", "Room disconnected");
       this.#setState("DISCONNECTED");
       _prevConcealed.clear();
+      _prevTotalSamples.clear();
       _prevBytesSent.clear();
+      _prevPacketsSent.clear();
     });
 
     // When the shared window closes, LiveKit unpublishes the track automatically.
@@ -1002,7 +1016,9 @@ export function VoiceContext(props: { children: JSX.Element }) {
         console.log("[Voice Diagnostics] Not connected to a voice channel");
         return;
       }
-      await printVoiceStats(room);
+      const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+      const df3Active = !!(micPub?.track as LocalAudioTrack | undefined)?.processor;
+      await printVoiceStats(room, voice.noiseFloorActive, df3Active);
     };
     console.log("[Voice] 🔍 Type window.stoatDiag() in the console to print voice stats");
 
@@ -1010,7 +1026,9 @@ export function VoiceContext(props: { children: JSX.Element }) {
     const statsInterval = setInterval(async () => {
       const room = voice.room();
       if (room && voice.state() === "CONNECTED") {
-        await printVoiceStats(room);
+        const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+        const df3Active = !!(micPub?.track as LocalAudioTrack | undefined)?.processor;
+        await printVoiceStats(room, voice.noiseFloorActive, df3Active);
       }
     }, 30_000);
 
