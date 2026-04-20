@@ -5,6 +5,7 @@ import { Server } from "stoat.js";
 import { css } from "styled-system/css";
 
 import { useClient, useClientLifecycle } from "@revolt/client";
+import { CONFIGURATION } from "@revolt/common";
 import { useUser } from "@revolt/markdown/users";
 import { useModals } from "@revolt/modal";
 import { ColouredText, Column, Text, iconSize } from "@revolt/ui";
@@ -209,7 +210,7 @@ const Config: SettingsConfiguration<{ server: Server }> = {
             {
               id: "voice",
               icon: <MdMic {...iconSize(20)} />,
-              title: <Trans>Voice</Trans>,
+              title: CONFIGURATION.ENABLE_VIDEO ? <Trans>Voice & Video</Trans> : <Trans>Voice</Trans>,
             },
             {
               id: "notification_sounds",

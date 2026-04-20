@@ -2,6 +2,9 @@ import { State } from "..";
 
 import { AbstractStore } from ".";
 
+export type ScreenShareQualityName = "low" | "high" | "text";
+export const ScreenShareQualityNames: ScreenShareQualityName[] = ["low", "high", "text"];
+
 export interface TypeVoice {
   preferredAudioInputDevice?: string;
   preferredAudioOutputDevice?: string;
@@ -14,6 +17,9 @@ export interface TypeVoice {
   outputVolume: number;
   deafen: boolean;
   micOn: boolean;
+
+  screenShareQuality: ScreenShareQualityName;
+  screenShareQualityAsk: boolean;
 
   userVolumes: Record<string, number>;
   userMutes: Record<string, boolean>;
@@ -75,6 +81,8 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       outputVolume: 1.0,
       deafen: false,
       micOn: true,
+      screenShareQuality: "low",
+      screenShareQualityAsk: true,
       userVolumes: {},
       userMutes: {},
       screenshareVolumes: {},
@@ -141,6 +149,14 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
 
     if (typeof input.micOn === "boolean") {
       data.micOn = input.micOn;
+    }
+
+    if (input.screenShareQuality && ScreenShareQualityNames.includes(input.screenShareQuality)) {
+      data.screenShareQuality = input.screenShareQuality;
+    }
+
+    if (typeof input.screenShareQualityAsk === "boolean") {
+      data.screenShareQualityAsk = input.screenShareQualityAsk;
     }
 
     if (typeof input.userVolumes === "object") {
@@ -453,6 +469,22 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
 
   set micOn(value: boolean) {
     this.set("micOn", value);
+  }
+
+  get screenShareQuality(): ScreenShareQualityName {
+    return this.get().screenShareQuality;
+  }
+
+  set screenShareQuality(value: ScreenShareQualityName) {
+    this.set("screenShareQuality", value);
+  }
+
+  get screenShareQualityAsk(): boolean {
+    return this.get().screenShareQualityAsk;
+  }
+
+  set screenShareQualityAsk(value: boolean) {
+    this.set("screenShareQualityAsk", value);
   }
 
   /**

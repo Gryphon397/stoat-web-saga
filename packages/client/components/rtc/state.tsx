@@ -17,7 +17,7 @@ import {
   useTracks,
 } from "solid-livekit-components";
 
-import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, Participant, RemoteAudioTrack, Room, Track, TrackPublication, VideoPresets } from "livekit-client";
+import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, Participant, RemoteAudioTrack, Room, ScreenSharePresets, Track, TrackPublication, VideoPresets, VideoResolution } from "livekit-client";
 import { DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
 import { voiceNotifications } from "./VoiceNotifications";
 import { ModalController, useModals } from "@revolt/modal";
@@ -113,7 +113,7 @@ declare global {
 import { Channel } from "stoat.js";
 
 import { useState } from "@revolt/state";
-import { Voice as VoiceSettings } from "@revolt/state/stores/Voice";
+import { ScreenShareQualityName, Voice as VoiceSettings } from "@revolt/state/stores/Voice";
 import { useClient } from "@revolt/client";
 import { VoiceCallCardContext } from "@revolt/ui/components/features/voice/callCard/VoiceCallCard";
 
@@ -128,6 +128,13 @@ type State =
   | "CONNECTING"
   | "CONNECTED"
   | "RECONNECTING";
+
+type ScreenShareQuality = {
+  name: ScreenShareQualityName;
+  resolution: VideoResolution;
+  fullName: string;
+  contentHint: string;
+};
 
 // AudioWorklet processor for per-process audio capture (inline blob URL)
 const pcmFeederWorkletCode = `
@@ -308,6 +315,7 @@ class Voice {
   #setShowBar: Setter<boolean>;
 
   private openModal: ModalController["openModal"];
+  private getClient: ReturnType<typeof useClient>;
 
   #livekitUrl = "";
   get livekitUrl() { return this.#livekitUrl; }
@@ -359,6 +367,7 @@ class Voice {
     this.#setShowBar = setShowBar;
 
     this.openModal = modals.openModal.bind(modals);
+    this.getClient = useClient();
   }
 
   /**
@@ -738,48 +747,143 @@ class Voice {
     this.#appAudioSourceId = id;
   }
 
+  getEnabledScreenShareQualities(): Partial<Record<ScreenShareQualityName, ScreenShareQuality>> {
+    const qualities: Partial<Record<ScreenShareQualityName, ScreenShareQuality>> = {
+      low: {
+        name: "low",
+        resolution: ScreenSharePresets.h720fps30.resolution,
+        fullName: "720p 30FPS",
+        contentHint: "motion",
+      },
+    };
+
+    const limit = this.getClient().configuration?.features.limits.default.video_resolution;
+    if (limit) {
+      if ((limit[0] === 0 || limit[0] >= 1920) && (limit[1] === 0 || limit[1] >= 1080)) {
+        qualities.high = {
+          name: "high",
+          resolution: ScreenSharePresets.h1080fps30.resolution,
+          fullName: "1080p 30FPS",
+          contentHint: "motion",
+        };
+        const originalResolution = { ...ScreenSharePresets.original.resolution, frameRate: 5, aspectRatio: 0 };
+        originalResolution.width = limit[0];
+        originalResolution.height = limit[1];
+        if (originalResolution.height !== 0 && originalResolution.width !== 0) {
+          originalResolution.aspectRatio = originalResolution.width / originalResolution.height;
+        }
+        qualities.text = {
+          name: "text",
+          resolution: originalResolution,
+          fullName: "Source 5FPS",
+          contentHint: "text",
+        };
+      }
+    }
+    return qualities;
+  }
+
   async toggleScreenshare() {
     const room = this.room();
     if (!room) throw "invalid state";
-    const enabling = !room.localParticipant.isScreenShareEnabled;
 
-    if (!enabling) {
+    if (this.screenshare()) {
       await this.#stopAppAudioCapture();
+      await room.localParticipant.setScreenShareEnabled(false);
+      this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
+      voiceNotifications.playScreenshareEnd();
+      return;
     }
 
-    try {
-      await room.localParticipant.setScreenShareEnabled(
-        enabling,
-        { audio: true, video: enabling ? { frameRate: this.#settings.screenshareFrameRate } : undefined },
-        enabling ? {
-          screenShareEncoding: {
-            maxBitrate: 3_000_000,
-            maxFramerate: this.#settings.screenshareFrameRate,
+    // Electron: frame rate already chosen in the source picker dialog — skip web quality modal
+    if (window.desktopCapture) {
+      try {
+        await room.localParticipant.setScreenShareEnabled(
+          true,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { audio: true, video: { frameRate: this.#settings.screenshareFrameRate } as any },
+          {
+            screenShareEncoding: {
+              maxBitrate: 3_000_000,
+              maxFramerate: this.#settings.screenshareFrameRate,
+            },
+            simulcast: false,
           },
-          simulcast: false,
-        } : undefined,
-      );
-    } catch (e: any) {
-      if (enabling) {
+        );
+      } catch (e: any) {
         console.warn("[Voice] screenshare cancelled or failed:", e?.message ?? e);
         this.#appAudioSourceId = null;
         return;
       }
-      throw e;
+
+      this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
+      if (!room.localParticipant.isScreenShareEnabled) return;
+
+      voiceNotifications.playScreenshareStart();
+      if (this.#appAudioSourceId) {
+        await this.#publishAppAudioTrack(room);
+      }
+      return;
+    }
+
+    // Web: use quality preset, show picker modal after stream starts
+    const qualities = this.getEnabledScreenShareQualities();
+    const quality = qualities[this.#settings.screenShareQuality] ?? qualities.low!;
+
+    let localTrack: Awaited<ReturnType<typeof room.localParticipant.setScreenShareEnabled>>;
+    try {
+      localTrack = await room.localParticipant.setScreenShareEnabled(
+        true,
+        { audio: true },
+        {
+          screenShareEncoding: {
+            maxBitrate: 3_000_000,
+            maxFramerate: quality.resolution.frameRate ?? 30,
+          },
+          simulcast: false,
+        },
+      );
+    } catch (e: any) {
+      console.warn("[Voice] screenshare cancelled or failed:", e?.message ?? e);
+      return;
     }
 
     this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
+    if (!room.localParticipant.isScreenShareEnabled) return;
 
-    if (room.localParticipant.isScreenShareEnabled) {
-      voiceNotifications.playScreenshareStart();
-    } else {
-      voiceNotifications.playScreenshareEnd();
+    if (localTrack && this.#settings.screenShareQualityAsk && Object.keys(qualities).length > 1) {
+      localTrack.pauseUpstream();
+      this.openModal({
+        type: "screen_share_settings",
+        onCancel: async () => {
+          await room.localParticipant.setScreenShareEnabled(false);
+          this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
+        },
+        trackReference: {
+          participant: room.localParticipant,
+          publication: localTrack!,
+          source: Track.Source.ScreenShare,
+        },
+        qualities: Object.keys(qualities).map((k) => {
+          const v = qualities[k as ScreenShareQualityName]!;
+          return { name: k, fullName: v.fullName };
+        }),
+        callback: async (qualityName: ScreenShareQualityName) => {
+          const q = qualities[qualityName] ?? qualities.low!;
+          if (localTrack?.videoTrack) {
+            await localTrack.videoTrack.mediaStreamTrack.applyConstraints({
+              frameRate: { max: q.resolution.frameRate },
+              ...(q.resolution.width ? { width: { max: q.resolution.width } } : {}),
+              ...(q.resolution.height ? { height: { max: q.resolution.height } } : {}),
+            });
+            localTrack.videoTrack.mediaStreamTrack.contentHint = q.contentHint;
+          }
+          localTrack?.resumeUpstream();
+        },
+      });
     }
 
-    // After successful enable: publish per-process audio if a window source was selected
-    if (enabling && room.localParticipant.isScreenShareEnabled && this.#appAudioSourceId) {
-      await this.#publishAppAudioTrack(room);
-    }
+    voiceNotifications.playScreenshareStart();
   }
 
   async #publishAppAudioTrack(room: Room) {

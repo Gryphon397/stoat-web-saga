@@ -34,6 +34,7 @@ import { EditPasswordModal } from "./modals/EditPassword";
 import { EditUsernameModal } from "./modals/EditUsername";
 import { EmojiPreviewModal } from "./modals/EmojiPreview";
 import { Error2Modal } from "./modals/Error2";
+import { ScreenShareSettingsModal } from "./modals/ScreenShareSettings";
 import { ImageViewerModal } from "./modals/ImageViewer";
 import { InviteModal } from "./modals/Invite";
 import { JoinServerModal } from "./modals/JoinServer";
@@ -135,6 +136,8 @@ export function RenderModal(props: ActiveModal & { onClose: () => void }) {
       return <EmojiPreviewModal {...modalProps} />;
     case "error2":
       return <Error2Modal {...modalProps} />;
+    case "screen_share_settings":
+      return <ScreenShareSettingsModal {...modalProps} />;
     case "image_viewer":
       return <ImageViewerModal {...modalProps} />;
     case "invite":

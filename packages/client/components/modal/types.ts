@@ -18,6 +18,8 @@ import {
   User,
   VideoEmbed,
 } from "stoat.js";
+import { TrackReference } from "solid-livekit-components";
+import { ScreenShareQualityName } from "@revolt/state/stores/Voice";
 import { ProtocolV1 } from "stoat.js/lib/events/v1";
 
 import type { SettingsConfigurations } from "@revolt/app";
@@ -162,6 +164,13 @@ export type Modals =
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       error: any;
+    }
+  | {
+      type: "screen_share_settings";
+      trackReference: TrackReference;
+      qualities: { name: string; fullName: string }[];
+      callback: (qualityName: ScreenShareQualityName) => void;
+      onCancel: () => void;
     }
   | {
       type: "image_viewer";

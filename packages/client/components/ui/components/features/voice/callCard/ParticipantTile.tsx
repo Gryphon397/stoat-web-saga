@@ -48,9 +48,14 @@ export function ParticipantTile(props: TileProps) {
     source: Track.Source.Microphone,
   });
 
-  const isScreenShareMuted = useIsMuted({
+  const isScreenShareAudioMuted = useIsMuted({
     participant,
     source: Track.Source.ScreenShareAudio,
+  });
+
+  const isRemoteScreenShareMuted = useIsMuted({
+    participant,
+    source: Track.Source.ScreenShare,
   });
 
   const isVideoMuted = useIsMuted({
@@ -254,6 +259,7 @@ export function ParticipantTile(props: TileProps) {
   };
 
   return (
+    <Show when={!isScreenShare() || !isRemoteScreenShareMuted()}>
     <div
       class={
         tile({
@@ -366,7 +372,7 @@ export function ParticipantTile(props: TileProps) {
                   <Symbol size={18}>volume_off</Symbol>
                 </Show>
               </OverlayIconButton>
-              <Show when={isScreenShareMuted()}>
+              <Show when={isScreenShareAudioMuted()}>
                 <Symbol size={18}>no_sound</Symbol>
               </Show>
               <OverlayIconButton title="Pop out" onClick={popOut}>
@@ -377,6 +383,7 @@ export function ParticipantTile(props: TileProps) {
         </Overlay>
       </Show>
     </div>
+    </Show>
   );
 }
 
