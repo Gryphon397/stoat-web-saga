@@ -12,6 +12,8 @@ export interface TypeVoice {
 
   inputVolume: number;
   outputVolume: number;
+  deafen: boolean;
+  micOn: boolean;
 
   userVolumes: Record<string, number>;
   userMutes: Record<string, boolean>;
@@ -71,6 +73,8 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       autoGainControl: true,
       inputVolume: 1.0,
       outputVolume: 1.0,
+      deafen: false,
+      micOn: true,
       userVolumes: {},
       userMutes: {},
       screenshareVolumes: {},
@@ -129,6 +133,14 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
 
     if (typeof input.outputVolume === "number") {
       data.outputVolume = input.outputVolume;
+    }
+
+    if (typeof input.deafen === "boolean") {
+      data.deafen = input.deafen;
+    }
+
+    if (typeof input.micOn === "boolean") {
+      data.micOn = input.micOn;
     }
 
     if (typeof input.userVolumes === "object") {
@@ -423,11 +435,24 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     return this.get().inputVolume;
   }
 
-  /**
-   * Get noise supression
-   */
   get outputVolume(): number {
     return this.get().outputVolume;
+  }
+
+  get deafen(): boolean {
+    return this.get().deafen;
+  }
+
+  set deafen(value: boolean) {
+    this.set("deafen", value);
+  }
+
+  get micOn(): boolean {
+    return this.get().micOn;
+  }
+
+  set micOn(value: boolean) {
+    this.set("micOn", value);
   }
 
   /**

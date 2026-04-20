@@ -281,10 +281,7 @@ class Voice {
   #setState: Setter<State>;
 
   deafen: Accessor<boolean>;
-  #setDeafen: Setter<boolean>;
-
   microphone: Accessor<boolean>;
-  #setMicrophone: Setter<boolean>;
 
   video: Accessor<boolean>;
   #setVideo: Setter<boolean>;
@@ -316,13 +313,8 @@ class Voice {
     this.state = state;
     this.#setState = setState;
 
-    const [deafen, setDeafen] = createSignal<boolean>(false);
-    this.deafen = deafen;
-    this.#setDeafen = setDeafen;
-
-    const [microphone, setMicrophone] = createSignal(false);
-    this.microphone = microphone;
-    this.#setMicrophone = setMicrophone;
+    this.deafen = () => voiceSettings.deafen;
+    this.microphone = () => voiceSettings.micOn;
 
     const [video, setVideo] = createSignal(false);
     this.video = video;
@@ -371,16 +363,12 @@ class Voice {
       this.#setChannel(channel);
       this.#setState("CONNECTING");
 
-      // only auto-mute when PTT is enabled
-      const pttEnabled = this.#settings.pushToTalkEnabled;
-      if (pttEnabled) {
-        debugLog("PTT-WEB", "PTT enabled - Setting initial mic state to OFF (muted)");
-        this.#setMicrophone(false);
-      } else {
-        debugLog("PTT-WEB", "PTT disabled - Keeping mic state as-is");
-        this.#setMicrophone(true);
+      // PTT always joins muted; without PTT, restore persisted mic state
+      if (this.#settings.pushToTalkEnabled) {
+        debugLog("PTT-WEB", "PTT enabled - joining muted");
+        this.#settings.micOn = false;
       }
-      this.#setDeafen(false);
+      this.#settings.deafen = false;
       this.#setVideo(false);
       this.#setScreenshare(false);
     });
@@ -388,8 +376,8 @@ class Voice {
     room.addListener("connected", () => {
       this.#setState("CONNECTED");
       if (this.speakingPermission)
-        room.localParticipant.setMicrophoneEnabled(true).then(async (track) => {
-          this.#setMicrophone(typeof track !== "undefined");
+        room.localParticipant.setMicrophoneEnabled(this.#settings.micOn).then(async (track) => {
+          this.#settings.micOn = track != null;
           if (track?.audioTrack && this.#settings.noiseSupression) {
             try {
               await track.audioTrack.setProcessor(
@@ -574,7 +562,7 @@ class Voice {
 
   async toggleDeafen() {
     const wasDeafened = this.deafen();
-    this.#setDeafen((s) => !s);
+    this.#settings.deafen = !wasDeafened;
     if (!wasDeafened) {
       voiceNotifications.playDeafen();
     } else {
@@ -589,7 +577,7 @@ class Voice {
       !room.localParticipant.isMicrophoneEnabled,
     );
 
-    this.#setMicrophone(room.localParticipant.isMicrophoneEnabled);
+    this.#settings.micOn = room.localParticipant.isMicrophoneEnabled;
 
     // only play sounds if PTT is disabled, or if PTT is enabled with notification sounds on
     const shouldPlaySound = !this.#settings.pushToTalkEnabled || this.#settings.pushToTalkNotificationSounds;
@@ -621,7 +609,7 @@ class Voice {
     if (currentState !== enabled) {
       debugLog("PTT-WEB", "setMute() - calling setMicrophoneEnabled(", enabled, ")");
       await room.localParticipant.setMicrophoneEnabled(enabled);
-      this.#setMicrophone(enabled);
+      this.#settings.micOn = enabled;
       debugLog("PTT-WEB", "setMute() - mic state updated to:", enabled);
 
       // only play sounds if PTT is disabled, or if PTT is enabled with notification sounds on
