@@ -1,51 +1,149 @@
-import { createEffect, Match, Show, Switch } from "solid-js";
-import {
-  isTrackReference,
-  TrackLoop,
-  TrackReference,
-  useEnsureParticipant,
-  useIsMuted,
-  useIsSpeaking,
-  useMaybeTrackRefContext,
-  useTrackRefContext,
-  useTracks,
-  VideoTrack,
-} from "solid-livekit-components";
+import { createEffect, For, onMount, Show } from "solid-js";
+import { TrackLoop } from "solid-livekit-components";
 
-import { Track } from "livekit-client";
-import { cva } from "styled-system/css";
+import { t } from "@lingui/core/macro";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { styled } from "styled-system/jsx";
 
-import { UserContextMenu } from "@revolt/app";
-import { useUser } from "@revolt/markdown/users";
 import { InRoom, useVoice } from "@revolt/rtc";
-import { useState } from "@revolt/state";
-import { Slider } from "@revolt/ui";
-import { Avatar } from "@revolt/ui/components/design";
-import { OverflowingText } from "@revolt/ui/components/utils";
+import { IconButton } from "@revolt/ui/components/design";
 import { Symbol } from "@revolt/ui/components/utils/Symbol";
+import { scrollableStyles } from "@revolt/ui/directives";
 
-import { VoiceStatefulUserIcons } from "../VoiceStatefulUserIcons";
-
+import { ParticipantTile, tile } from "./ParticipantTile";
 import { VoiceCallCardActions } from "./VoiceCallCardActions";
 import { VoiceCallCardStatus } from "./VoiceCallCardStatus";
 
-/**
- * Call card (active)
- */
 export function VoiceCallCardActiveRoom() {
   return (
     <View>
-      <Call>
-        <InRoom>
-          <Participants />
-        </InRoom>
-      </Call>
-
-      <VoiceCallCardStatus />
-      {/* Voice controls moved to sidebar - Discord-like UI */}
-      {/* <VoiceCallCardActions size="sm" /> */}
+      <Participants />
+      <VoiceCallControls>
+        <VoiceCallControlHolder right>
+          <VoiceCallFullscreen />
+        </VoiceCallControlHolder>
+        <VoiceCallCardActions size="sm" />
+        <VoiceCallControlHolder left overflow>
+          <VoiceCallCardStatus />
+        </VoiceCallControlHolder>
+      </VoiceCallControls>
     </View>
+  );
+}
+
+function VoiceCallFullscreen() {
+  const voice = useVoice();
+  return (
+    <IconButton
+      size="sm"
+      variant={"standard"}
+      onPress={() => voice.toggleFullscreen()}
+    >
+      <Show when={voice.fullscreen()} fallback={<Symbol>fullscreen</Symbol>}>
+        <Symbol>fullscreen_exit</Symbol>
+      </Show>
+    </IconButton>
+  );
+}
+
+const TILE_MIN_WIDTH = "250px",
+  TILE_MIN_FOCUS_HEIGHT = "100px";
+
+function Participants() {
+  const voice = useVoice();
+
+  const testTrackCount = 0;
+
+  let callRef: HTMLDivElement | undefined;
+
+  const tracks = () =>
+    voice.vidTracks().filter(
+      (t) => !t.participant.identity.startsWith("viewer-"),
+    );
+
+  const tileWidth = () => {
+    const vidWidth = Math.round(100 / (tracks().length + testTrackCount));
+    return `max(${TILE_MIN_WIDTH}, ${vidWidth}% - var(--gap-md))`;
+  };
+
+  createEffect(() => {
+    if (!voice.focusTrack()) voice.toggleFocus();
+  });
+
+  onMount(() => {
+    createResizeObserver(callRef, ({ width, height }, el) => {
+      if (el === callRef) {
+        el.style.setProperty("--vc-w", `${width}px`);
+        el.style.setProperty("--vc-h", `${height}px`);
+      }
+    });
+  });
+
+  return (
+    <Call ref={callRef} class={voice.focusId() ? "" : scrollableStyles()}>
+      <InRoom>
+        <FocusedParticipant />
+        <Show when={voice.focusId()}>
+          <ShowBarButtonHolder>
+            <div style={{ "margin-bottom": "10px" }}>
+              <IconButton
+                size="xs"
+                variant={"tonal"}
+                onPress={() => voice.toggleShowBar()}
+                use:floating={{
+                  tooltip: {
+                    placement: "top",
+                    content: voice.showBar() ? t`Hide Others` : t`Show Others`,
+                  },
+                }}
+              >
+                <Show
+                  when={voice.showBar()}
+                  fallback={<Symbol>keyboard_arrow_up</Symbol>}
+                >
+                  <Symbol>keyboard_arrow_down</Symbol>
+                </Show>
+              </IconButton>
+            </div>
+          </ShowBarButtonHolder>
+        </Show>
+        <Grid
+          focus={!!voice.focusId()}
+          show={voice.showBar()}
+          class={voice.focusId() ? scrollableStyles({ direction: "x" }) : ""}
+          style={{ "--vc-tile-width": tileWidth() }}
+        >
+          <TrackLoop
+            tracks={() => tracks().filter((t) => !voice.isFocus(t))}
+          >
+            {() => <ParticipantTile />}
+          </TrackLoop>
+          <For each={Array(testTrackCount)}>
+            {() => (
+              <div
+                class={tile({ fullscreen: voice.fullscreen() }) + " vc_tile"}
+              />
+            )}
+          </For>
+        </Grid>
+      </InRoom>
+    </Call>
+  );
+}
+
+function FocusedParticipant() {
+  const voice = useVoice();
+
+  return (
+    <Show when={voice.focusTrack()}>
+      <TrackLoop tracks={() => [voice.focusTrack()!]}>
+        {() => (
+          <FocusBox>
+            <ParticipantTile focus />
+          </FocusBox>
+        )}
+      </TrackLoop>
+    </Show>
   );
 }
 
@@ -55,584 +153,109 @@ const View = styled("div", {
     height: "100%",
     width: "100%",
 
-    gap: "var(--gap-md)",
-    padding: "var(--gap-md)",
-
     display: "flex",
     flexDirection: "column",
+    gap: "var(--gap-md)",
+    padding: "var(--gap-md)",
+  },
+});
+
+const VoiceCallControls = styled("div", {
+  base: {
+    display: "flex",
+    flexShrink: "0",
+    overflow: "hidden",
+    flexDirection: "row-reverse",
+  },
+});
+
+const VoiceCallControlHolder = styled("div", {
+  base: {
+    display: "flex",
+    flex: "1",
+    alignSelf: "center",
+    gap: "var(--gap-md)",
+    padding: "var(--gap-md)",
+  },
+  variants: {
+    right: {
+      true: {
+        justifyContent: "flex-end",
+      },
+    },
+    left: {
+      true: {
+        justifyContent: "flex-start",
+      },
+    },
+    overflow: {
+      true: {
+        overflow: "hidden",
+      },
+    },
+  },
+});
+
+const ShowBarButtonHolder = styled("div", {
+  base: {
+    height: "0px",
+    alignSelf: "center",
+    overflow: "visible",
+    display: "flex",
+    flexDirection: "column-reverse",
   },
 });
 
 const Call = styled("div", {
   base: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--gap-sm)",
     flexGrow: 1,
     minHeight: 0,
-    overflow: "hidden",
   },
 });
-
-/**
- * Show a grid of participants
- */
-function Participants() {
-  const allTracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false },
-  );
-  // Hide hidden viewer connections opened by the popout window
-  const tracks = () => allTracks().filter((t) => !t.participant.identity.startsWith("viewer-"));
-
-  return (
-    <Grid>
-      <TrackLoop tracks={tracks}>{() => <ParticipantTile />}</TrackLoop>
-      {/* <div class={tile()} />
-      <div class={tile()} />
-      <div class={tile()} />
-      <div class={tile()} />
-      <div class={tile()} /> */}
-    </Grid>
-  );
-}
 
 const Grid = styled("div", {
   base: {
-    height: "100%",
     display: "flex",
     flexWrap: "wrap",
-    justifyContent: "center",
-    alignContent: "center",
+    justifyContent: "safe center",
+    alignContent: "safe center",
+    minHeight: "100%",
     gap: "var(--gap-md)",
-    padding: "var(--gap-md)",
-    overflow: "hidden",
   },
-});
 
-/**
- * Individual participant tile
- */
-function ParticipantTile() {
-  const track = useTrackRefContext();
+  variants: {
+    focus: {
+      true: {
+        flexDirection: "column",
+        height: `max(20%, ${TILE_MIN_FOCUS_HEIGHT})`,
+        minHeight: 0,
+        transition: "height .3s ease",
 
-  return (
-    <Switch fallback={<UserTile />}>
-      <Match when={track.source === Track.Source.ScreenShare}>
-        <ScreenshareTile />
-      </Match>
-    </Switch>
-  );
-}
-
-/**
- * Shown when the track source is a camera or placeholder
- */
-function UserTile() {
-  const participant = useEnsureParticipant();
-  const track = useMaybeTrackRefContext();
-  const voice = useVoice();
-
-  const isMuted = useIsMuted({
-    participant,
-    source: Track.Source.Microphone,
-  });
-
-  const isVideoMuted = useIsMuted({
-    participant,
-    source: Track.Source.Camera,
-  });
-
-  const isSpeaking = useIsSpeaking(participant);
-  const isDeafened = () =>
-    !voice.channel()?.voiceParticipants.get(participant.identity)?.isReceiving();
-
-  const user = useUser(participant.identity);
-
-  let videoRef: HTMLDivElement | undefined;
-
-  function toggleFullscreen() {
-    if (!videoRef || !isTrackReference(track) || isVideoMuted()) return;
-    if (!document.fullscreenElement) {
-      videoRef.requestFullscreen();
-    } else {
-      document.exitFullscreen();
-    }
-  }
-
-  createEffect(() => {
-    if (isVideoMuted() && document.fullscreenElement) {
-      document.exitFullscreen();
-    }
-  });
-
-  return (
-    <div
-      ref={videoRef}
-      class={tile({
-        speaking: isSpeaking(),
-      })}
-      onClick={toggleFullscreen}
-      style={{ cursor: "pointer", position: "relative" }}
-      use:floating={{
-        userCard: {
-          user: user().user!,
-          member: user().member,
-        },
-        contextMenu: () => (
-          <UserContextMenu user={user().user!} member={user().member} inVoice />
-        ),
-      }}
-    >
-      <Switch
-        fallback={
-          <AvatarOnly>
-            <Avatar
-              src={user().avatar}
-              fallback={user().username}
-              size={48}
-              interactive={false}
-            />
-          </AvatarOnly>
-        }
-      >
-        <Match when={isTrackReference(track) && !isVideoMuted()}>
-          <VideoTrack
-            style={{
-              "grid-area": "1/1",
-              "object-fit": "contain",
-              width: "100%",
-              height: "100%",
-            }}
-            trackRef={track as TrackReference}
-            manageSubscription={true}
-          />
-        </Match>
-      </Switch>
-
-      <Overlay>
-        <OverlayInner>
-          <OverflowingText>{user().username}</OverflowingText>
-          <VoiceStatefulUserIcons
-            userId={participant.identity}
-            muted={isMuted()}
-            deafened={isDeafened()}
-          />
-          <Show when={isTrackReference(track) && !isVideoMuted()}>
-            <Symbol size={18}>fullscreen</Symbol>
-          </Show>
-        </OverlayInner>
-      </Overlay>
-    </div>
-  );
-}
-
-const AvatarOnly = styled("div", {
-  base: {
-    gridArea: "1/1",
-    display: "grid",
-    placeItems: "center",
-  },
-});
-
-/**
- * Shown when the track source is a screenshare
- */
-function ScreenshareTile() {
-  const participant = useEnsureParticipant();
-  const track = useMaybeTrackRefContext();
-  const user = useUser(participant.identity);
-  const state = useState();
-  const voice = useVoice();
-
-  const popOut = async (e: MouseEvent) => {
-    e.stopPropagation();
-
-    // Electron pop-out: relay screenshare via captureStream + local WebRTC
-    if (window.stoatPopout) {
-      const room = voice.room();
-      if (!room) return;
-
-      const target = room.getParticipantByIdentity(participant.identity);
-      if (!target) return;
-
-      const videoMST = target.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
-      if (!videoMST || videoMST.readyState !== "live") return;
-      const audioMST = target.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
-
-      // Clone the remote tracks to produce independent local copies for the
-      // relay PeerConnection.  Cloning avoids two issues with the previous
-      // captureStream() approach:
-      //   1. captureStream() requires a hidden <video> element to keep
-      //      decoding frames.  When the main window loses focus (user is
-      //      watching a popout) Chromium background-throttles those invisible
-      //      elements, freezing the second (and subsequent) popout streams.
-      //   2. The hidden element was never cleaned up if the component
-      //      unmounted before the popout closed.
-      // Cloned tracks share the same LiveKit decoder source without any DOM
-      // dependency and are independently stoppable.
-      const videoClone = videoMST.clone();
-      const audioClone = audioMST?.clone() ?? null;
-      const relayStream = new MediaStream([videoClone, ...(audioClone ? [audioClone] : [])]);
-      console.log("[popOut] relay tracks:", relayStream.getTracks().map(t => t.kind));
-
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
-      for (const t of relayStream.getTracks()) {
-        pc.addTrack(t, relayStream);
-      }
-
-      pc.oniceconnectionstatechange = () => {
-        console.log("[popOut] ICE state:", pc.iceConnectionState);
-      };
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      await new Promise<void>((resolve) => {
-        if (pc.iceGatheringState === "complete") { resolve(); return; }
-        const timeout = setTimeout(resolve, 5000);
-        pc.addEventListener("icegatheringstatechange", () => {
-          if (pc.iceGatheringState === "complete") {
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-      });
-
-      const offerSdp = pc.localDescription!.sdp;
-
-      const cleanupAnswer = window.stoatPopout.onAnswer(async (identity, answerSdp) => {
-        if (identity !== participant.identity) return;
-        try {
-          await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-          console.log("[popOut] WebRTC connection established");
-        } catch (err) {
-          console.error("[popOut] Failed to set answer:", err);
-        }
-      });
-
-      // Guard against double-cleanup (onPopoutClosed + ICE disconnected racing).
-      let cleaned = false;
-      const cleanup = () => {
-        if (cleaned) return;
-        cleaned = true;
-        pc.close();
-        cleanupAnswer();
-        cleanupClosed();
-        videoMST.removeEventListener("ended", onEnded);
-        videoClone.stop();
-        if (audioClone) audioClone.stop();
-      };
-
-      const cleanupClosed = window.stoatPopout.onPopoutClosed((closedIdentity) => {
-        if (closedIdentity === participant.identity) cleanup();
-      });
-
-      // Named so it can be removed in cleanup — prevents stale listeners
-      // accumulating if the same stream is popped out multiple times.
-      const onEnded = () => {
-        cleanup();
-        window.stoatPopout?.close(participant.identity);
-      };
-      videoMST.addEventListener("ended", onEnded);
-
-      window.stoatPopout.open({
-        identity: participant.identity,
-        username: user().username ?? participant.identity,
-        offerSdp,
-      });
-      return;
-    }
-
-    // Web fallback: documentPiP or standard PiP
-    const mediaStreamTrack = (track as any)?.publication?.track?.mediaStreamTrack as MediaStreamTrack | undefined;
-    if (!mediaStreamTrack) return;
-    const stream = new MediaStream([mediaStreamTrack]);
-
-    const openDocumentPiP = async () => {
-      const pipWindow = await (window as any).documentPictureInPicture.requestWindow({
-        width: 854,
-        height: 480,
-      });
-
-      const doc = pipWindow.document;
-
-      // Inject hover styles
-      const style = doc.createElement("style");
-      style.textContent = "button:hover{background:rgba(255,255,255,0.3)!important;}body{margin:0;}";
-      doc.head.appendChild(style);
-
-      doc.body.style.cssText = "background:#000;width:100vw;height:100vh;overflow:hidden;position:relative;";
-
-      const pipVideo = doc.createElement("video") as HTMLVideoElement;
-      pipVideo.srcObject = stream;
-      pipVideo.autoplay = true;
-      pipVideo.muted = true;
-      pipVideo.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
-      doc.body.appendChild(pipVideo);
-
-      const controls = doc.createElement("div");
-      controls.style.cssText = "position:absolute;bottom:0;left:0;right:0;padding:12px 16px;background:linear-gradient(transparent,rgba(0,0,0,0.75));display:flex;align-items:center;gap:12px;";
-
-      const muteBtn = doc.createElement("button");
-      muteBtn.style.cssText = "background:rgba(255,255,255,0.15);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:18px;flex-shrink:0;transition:background 0.15s;";
-
-      const slider = doc.createElement("input");
-      slider.type = "range";
-      slider.min = "0";
-      slider.max = "3";
-      slider.step = "0.1";
-      slider.style.cssText = "flex:1;cursor:pointer;accent-color:#fff;";
-
-      const label = doc.createElement("span");
-      label.style.cssText = "color:#fff;font-size:12px;min-width:36px;text-align:right;font-family:sans-serif;";
-
-      const syncControls = () => {
-        const muted = state.voice.getScreenshareMuted(participant.identity);
-        const vol = state.voice.getScreenshareVolume(participant.identity);
-        muteBtn.textContent = muted ? "\u{1F507}" : "\u{1F50A}";
-        muteBtn.title = muted ? "Unmute" : "Mute";
-        slider.value = String(vol);
-        label.textContent = Math.round(vol * 100) + "%";
-      };
-
-      muteBtn.onclick = () => {
-        state.voice.setScreenshareMuted(participant.identity, !state.voice.getScreenshareMuted(participant.identity));
-        syncControls();
-      };
-
-      slider.oninput = () => {
-        const vol = parseFloat(slider.value);
-        state.voice.setScreenshareVolume(participant.identity, vol);
-        label.textContent = Math.round(vol * 100) + "%";
-      };
-
-      syncControls();
-      controls.appendChild(muteBtn);
-      controls.appendChild(slider);
-      controls.appendChild(label);
-      doc.body.appendChild(controls);
-
-      const syncInterval = setInterval(syncControls, 500);
-      pipWindow.addEventListener("pagehide", () => {
-        clearInterval(syncInterval);
-        pipVideo.srcObject = null;
-      });
-    };
-
-    const openStandardPiP = async () => {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        return;
-      }
-      const tempVideo = document.createElement("video") as HTMLVideoElement;
-      tempVideo.srcObject = stream;
-      tempVideo.muted = true;
-      tempVideo.style.cssText = "position:fixed;bottom:0;right:0;width:1px;height:1px;pointer-events:none;opacity:0;";
-      document.body.appendChild(tempVideo);
-      await tempVideo.play();
-      await tempVideo.requestPictureInPicture();
-      tempVideo.addEventListener("leavepictureinpicture", () => {
-        document.body.removeChild(tempVideo);
-        tempVideo.srcObject = null;
-      });
-    };
-
-    if ("documentPictureInPicture" in window) {
-      try {
-        await openDocumentPiP();
-        return;
-      } catch (err) {
-        console.warn("[popOut] documentPiP failed:", err);
-      }
-    }
-    try {
-      await openStandardPiP();
-    } catch (err2) {
-      console.error("[popOut] Standard PiP failed:", err2);
-    }
-  };
-
-  let videoRef: HTMLDivElement | undefined;
-
-  const toggleFullscreen = () => {
-    if (!videoRef) return;
-    if (!isTrackReference(track)) return;
-    if (!document.fullscreenElement) {
-      videoRef.requestFullscreen();
-    } else {
-      document.exitFullscreen();
-    }
-  };
-
-  return (
-    <div
-      ref={videoRef}
-      class={tile() + " group"}
-      onClick={toggleFullscreen}
-      style={{ cursor: "pointer" }}
-    >
-      <VideoTrack
-        style={{
-          "grid-area": "1/1",
-          "object-fit": "contain",
-          width: "100%",
+        "& .vc_tile": {
+          width: "auto",
           height: "100%",
-        }}
-        trackRef={track as TrackReference}
-        manageSubscription={true}
-      />
-
-      <Overlay showOnHover>
-        <div style={{ display: "flex", "flex-direction": "column", width: "100%", gap: "var(--gap-sm)" }}>
-          <div
-            style={{ display: "flex", "align-items": "center", gap: "var(--gap-sm)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Symbol size={16}>volume_up</Symbol>
-            <Slider
-              min={0}
-              max={3}
-              step={0.1}
-              value={state.voice.getScreenshareVolume(participant.identity)}
-              onInput={(e) =>
-                state.voice.setScreenshareVolume(
-                  participant.identity,
-                  e.currentTarget.value,
-                )
-              }
-              labelFormatter={(v) => (v * 100).toFixed(0) + "%"}
-            />
-          </div>
-          <OverlayInner>
-            <OverflowingText>{user().username}</OverflowingText>
-            <OverlayIconButton
-              title={state.voice.getScreenshareMuted(participant.identity) ? "Unmute screenshare audio" : "Mute screenshare audio"}
-              onClick={(e) => {
-                e.stopPropagation();
-                state.voice.setScreenshareMuted(
-                  participant.identity,
-                  !state.voice.getScreenshareMuted(participant.identity),
-                );
-              }}
-            >
-              <Show
-                when={state.voice.getScreenshareMuted(participant.identity)}
-                fallback={<Symbol size={18}>volume_up</Symbol>}
-              >
-                <Symbol size={18}>volume_off</Symbol>
-              </Show>
-            </OverlayIconButton>
-            <OverlayIconButton
-              title="Pop out"
-              onClick={popOut}
-            >
-              <Symbol size={18}>picture_in_picture_alt</Symbol>
-            </OverlayIconButton>
-            <Symbol size={18}>fullscreen</Symbol>
-          </OverlayInner>
-        </div>
-      </Overlay>
-    </div>
-  );
-}
-
-const tile = cva({
-  base: {
-    flex: "1 1 240px",
-    maxWidth: "100%",
-    height: "100%",
-    minHeight: 0,
-    display: "grid",
-    gridTemplateRows: "minmax(0, 1fr)",
-    gridTemplateColumns: "minmax(0, 1fr)",
-    transition: "outline-color 60ms ease",
-    borderRadius: "var(--borderRadius-lg)",
-    position: "relative",
-
-    color: "var(--md-sys-color-on-surface)",
-    background: "#0002",
-
-    overflow: "hidden",
-    outlineWidth: "3px",
-    outlineStyle: "solid",
-    outlineOffset: "-3px",
-    outlineColor: "transparent",
-  },
-  variants: {
-    speaking: {
-      true: {
-        outlineColor: "var(--md-sys-color-primary)",
-      },
-    },
-  },
-});
-
-const Overlay = styled("div", {
-  base: {
-    minWidth: 0,
-    gridArea: "1/1",
-    zIndex: 1,
-
-    padding: "var(--gap-md) var(--gap-lg)",
-
-    opacity: 1,
-    display: "flex",
-    alignItems: "end",
-    flexDirection: "row",
-
-    transition: "var(--transitions-fast) all",
-    transitionTimingFunction: "ease",
-  },
-  variants: {
-    showOnHover: {
-      true: {
-        opacity: 0,
-
-        _groupHover: {
-          opacity: 1,
         },
       },
+    },
+    show: {
       false: {
-        opacity: 1,
+        height: 0,
       },
     },
   },
-  defaultVariants: {
-    showOnHover: false,
-  },
 });
 
-const OverlayInner = styled("div", {
+const FocusBox = styled("div", {
   base: {
-    minWidth: 0,
-
+    height: 0,
+    flexGrow: 1,
     display: "flex",
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-
-    _first: {
-      flexGrow: 1,
-    },
+    flexDirection: "column",
+    justifyContent: "center",
+    margin: "0 auto",
   },
 });
-
-const OverlayIconButton = styled("button", {
-  base: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    color: "inherit",
-    display: "flex",
-    padding: "2px",
-    borderRadius: "var(--borderRadius-sm)",
-    transition: "background var(--transitions-fast)",
-    _hover: {
-      background: "rgba(255,255,255,0.15)",
-    },
-  },
-});
-

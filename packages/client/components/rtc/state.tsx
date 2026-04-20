@@ -11,11 +11,16 @@ import {
   onMount,
   onCleanup,
 } from "solid-js";
-import { RoomContext } from "solid-livekit-components";
+import {
+  RoomContext,
+  TrackReferenceOrPlaceholder,
+  useTracks,
+} from "solid-livekit-components";
 
 import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, Participant, RemoteAudioTrack, Room, Track, TrackPublication, VideoPresets } from "livekit-client";
 import { DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
 import { voiceNotifications } from "./VoiceNotifications";
+import { ModalController, useModals } from "@revolt/modal";
 
 const debugLog = (prefix: string, ...args: unknown[]) => {
   if (import.meta.env.DEV) {
@@ -54,13 +59,15 @@ declare global {
       open: (params: {
         identity: string;
         username: string;
-        livekitUrl: string;
-        viewerToken: string;
+        livekitUrl?: string;
+        viewerToken?: string;
+        offerSdp?: string;
         volume?: number;
       }) => Promise<void>;
       close: (identity: string) => Promise<void>;
       notifyMainDisconnected: () => Promise<void>;
       onPopoutClosed: (callback: (identity: string) => void) => () => void;
+      onAnswer: (callback: (identity: string, answerSdp: string) => void) => () => void;
     };
   }
 }
@@ -289,6 +296,19 @@ class Voice {
   screenshare: Accessor<boolean>;
   #setScreenshare: Setter<boolean>;
 
+  vidTracks: Accessor<TrackReferenceOrPlaceholder[]>;
+
+  fullscreen: Accessor<boolean>;
+  #setFullscreen: Setter<boolean>;
+
+  focusId: Accessor<string | undefined>;
+  #setFocus: Setter<string | undefined>;
+
+  showBar: Accessor<boolean>;
+  #setShowBar: Setter<boolean>;
+
+  private openModal: ModalController["openModal"];
+
   #livekitUrl = "";
   get livekitUrl() { return this.#livekitUrl; }
   // Per-process audio capture state
@@ -298,7 +318,7 @@ class Voice {
   #appAudioDataHandler: ((chunk: Uint8Array) => void) | null = null;
   #appAudioSourceId: string | null = null;
 
-  constructor(voiceSettings: VoiceSettings) {
+  constructor(voiceSettings: VoiceSettings, modals: ModalController) {
     this.#settings = voiceSettings;
 
     const [channel, setChannel] = createSignal<Channel>();
@@ -323,6 +343,36 @@ class Voice {
     const [screenshare, setScreenshare] = createSignal(false);
     this.screenshare = screenshare;
     this.#setScreenshare = setScreenshare;
+
+    this.vidTracks = () => [];
+
+    const [fullscreen, setFullscreen] = createSignal(false);
+    this.fullscreen = fullscreen;
+    this.#setFullscreen = setFullscreen;
+
+    const [focus, setFocus] = createSignal<string>();
+    this.focusId = focus;
+    this.#setFocus = setFocus;
+
+    const [showBar, setShowBar] = createSignal(true);
+    this.showBar = showBar;
+    this.#setShowBar = setShowBar;
+
+    this.openModal = modals.openModal.bind(modals);
+  }
+
+  /**
+   * Initialize vidTracks via useTracks — must be called within the RoomContext.Provider
+   * reactive scope (i.e. from VoiceContext after the provider is established).
+   */
+  initTracks() {
+    this.vidTracks = useTracks(
+      [
+        { source: Track.Source.Camera, withPlaceholder: true },
+        { source: Track.Source.ScreenShare, withPlaceholder: false },
+      ],
+      { onlySubscribed: false },
+    );
   }
 
   async connect(channel: Channel, auth?: { url: string; token: string }) {
@@ -557,6 +607,8 @@ class Voice {
       this.#setChannel(undefined);
       this.#setScreenshare(false);
       this.#setVideo(false);
+      this.#setFullscreen(false);
+      this.vidTracks = () => [];
     });
   }
 
@@ -571,23 +623,26 @@ class Voice {
   }
 
   async toggleMute() {
-    const room = this.room();
-    if (!room) throw "invalid state";
-    await room.localParticipant.setMicrophoneEnabled(
-      !room.localParticipant.isMicrophoneEnabled,
-    );
+    try {
+      const room = this.room();
+      if (!room) throw "invalid state";
+      await room.localParticipant.setMicrophoneEnabled(
+        !room.localParticipant.isMicrophoneEnabled,
+      );
 
-    this.#settings.micOn = room.localParticipant.isMicrophoneEnabled;
+      this.#settings.micOn = room.localParticipant.isMicrophoneEnabled;
 
-    // only play sounds if PTT is disabled, or if PTT is enabled with notification sounds on
-    const shouldPlaySound = !this.#settings.pushToTalkEnabled || this.#settings.pushToTalkNotificationSounds;
+      const shouldPlaySound = !this.#settings.pushToTalkEnabled || this.#settings.pushToTalkNotificationSounds;
 
-    if (shouldPlaySound) {
-      if (room.localParticipant.isMicrophoneEnabled) {
-        voiceNotifications.playUnmute();
-      } else {
-        voiceNotifications.playMute();
+      if (shouldPlaySound) {
+        if (room.localParticipant.isMicrophoneEnabled) {
+          voiceNotifications.playUnmute();
+        } else {
+          voiceNotifications.playMute();
+        }
       }
+    } catch (e) {
+      this.onErr(e);
     }
   }
 
@@ -636,13 +691,47 @@ class Voice {
   }
 
   async toggleCamera() {
-    const room = this.room();
-    if (!room) throw "invalid state";
-    await room.localParticipant.setCameraEnabled(
-      !room.localParticipant.isCameraEnabled,
-    );
+    try {
+      const room = this.room();
+      if (!room) throw "invalid state";
+      await room.localParticipant.setCameraEnabled(
+        !room.localParticipant.isCameraEnabled,
+      );
 
-    this.#setVideo(room.localParticipant.isCameraEnabled);
+      this.#setVideo(room.localParticipant.isCameraEnabled);
+    } catch (e) {
+      this.onErr(e);
+    }
+  }
+
+  toggleFullscreen(fullscreen: boolean = !this.fullscreen()) {
+    this.#setFullscreen(fullscreen);
+  }
+
+  trackId(t: TrackReferenceOrPlaceholder) {
+    return `${t.source}_${t.participant.sid}`;
+  }
+
+  toggleFocus(t?: TrackReferenceOrPlaceholder) {
+    const id = t ? this.trackId(t) : undefined;
+    this.#setFocus(
+      this.focusId() === id || this.vidTracks().length < 2 ? undefined : id,
+    );
+  }
+
+  isFocus(t: TrackReferenceOrPlaceholder) {
+    return this.trackId(t) === this.focusId();
+  }
+
+  focusTrack() {
+    const id = this.focusId();
+    return id
+      ? this.vidTracks().find((t) => this.trackId(t) === id)
+      : undefined;
+  }
+
+  toggleShowBar() {
+    this.#setShowBar((s) => !s);
   }
 
   setAppAudioSourceId(id: string | null) {
@@ -789,16 +878,32 @@ class Voice {
   get speakingPermission() {
     return !!this.channel()?.havePermission("Speak");
   }
+
+  private onErr(e: unknown) {
+    if ((e as Error).name !== "NotAllowedError")
+      this.openModal({ type: "error2", error: e });
+  }
 }
 
 const voiceContext = createContext<Voice>(null as unknown as Voice);
+
+/**
+ * Initializes vidTracks on the voice object within the RoomContext.Provider scope.
+ * Must be rendered as a child of RoomContext.Provider so useTracks can access the room.
+ */
+function VoiceTrackInitializer(props: { voice: Voice }) {
+  props.voice.initTracks();
+  // eslint-disable-next-line solid/no-react-specific-props
+  return <></>;
+}
 
 /**
  * Mount global voice context and room audio manager
  */
 export function VoiceContext(props: { children: JSX.Element }) {
   const state = useState();
-  const voice = new Voice(state.voice);
+  const modals = useModals();
+  const voice = new Voice(state.voice, modals);
   const client = useClient();
 
   const [pickSources, setPickSources] = createSignal<
@@ -1009,6 +1114,7 @@ export function VoiceContext(props: { children: JSX.Element }) {
   return (
     <voiceContext.Provider value={voice}>
       <RoomContext.Provider value={voice.room}>
+        <VoiceTrackInitializer voice={voice} />
         <VoiceCallCardContext>{props.children}</VoiceCallCardContext>
         <InRoom>
           <RoomAudioManager />
