@@ -36,6 +36,21 @@ export function RoomAudioManager() {
   createEffect(() => {
     for (const track of filteredTracks()) {
       (track.publication as RemoteTrackPublication).setSubscribed(true);
+      // [VAD-IMPROVEMENT-#11] Lower jitter buffer target from LiveKit's
+      // ~120 ms default to ~50 ms. Tighter conversational feel for LAN /
+      // WireGuard / generally healthy connections; a slight reduction in
+      // jitter robustness on bad networks (NetEq still adapts upward when
+      // late packets arrive). The hint is unsupported in some Firefox
+      // builds — assignment is wrapped to avoid runtime errors.
+      // To revert: delete this block.
+      try {
+        const receiver = (track.publication.track as { receiver?: RTCRtpReceiver } | undefined)?.receiver;
+        if (receiver) {
+          (receiver as RTCRtpReceiver & { playoutDelayHint?: number }).playoutDelayHint = 0.05;
+        }
+      } catch {
+        // Non-fatal — playoutDelayHint is a hint, not required for correctness.
+      }
     }
   });
 

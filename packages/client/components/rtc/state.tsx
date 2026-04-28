@@ -713,6 +713,26 @@ class Voice {
         void this.#calibrateInputSensitivity(this.#rawMicTrack);
       }
 
+      // [VAD-IMPROVEMENT-#12] Mark outgoing voice as high network-priority so
+      // QoS-aware routers / congestion controllers favor audio packets over
+      // bulk traffic on the same path (e.g. screenshare on the publisher PC).
+      // Applied per-encoding on the underlying RTCRtpSender — LiveKit doesn't
+      // expose this via publishDefaults at v2.13.0.
+      // To revert: delete this try/catch block.
+      try {
+        const sender = (track as unknown as { sender?: RTCRtpSender }).sender;
+        if (sender) {
+          const params = sender.getParameters();
+          for (const enc of params.encodings ?? []) {
+            (enc as RTCRtpEncodingParameters & { networkPriority?: RTCPriorityType }).networkPriority = "high";
+          }
+          await sender.setParameters(params);
+        }
+      } catch (e) {
+        // Non-fatal — networkPriority is a hint.
+        console.warn("[Voice] networkPriority hint not applied:", e);
+      }
+
       if (!this.#settings.noiseSupression) return;
       if (!DeepFilterNoiseFilterProcessor.isSupported()) {
         console.warn("[Voice] DF3 not supported in this browser");
@@ -788,8 +808,14 @@ class Voice {
 
     this.#livekitUrl = auth.url;
     debugLog("PTT-WEB", "Connecting to room...");
+    // [VAD-IMPROVEMENT-#10] autoSubscribe: true — every remote track is
+    // subscribed automatically as participants publish, instead of waiting for
+    // RoomAudioManager's setSubscribed loop to opt in (~50 ms × N participants
+    // before first audio frame). RoomAudioManager's explicit setSubscribed call
+    // remains as a safety net but is now a no-op for the fast path.
+    // To revert: set autoSubscribe back to false.
     await room.connect(auth.url, auth.token, {
-      autoSubscribe: false,
+      autoSubscribe: true,
     });
     debugLog("PTT-WEB", "Room connected successfully, mic state:", room.localParticipant.isMicrophoneEnabled);
     
