@@ -24,6 +24,11 @@ COPY packages/client/package.json packages/client/
 # Copy panda config needed by client's "prepare" lifecycle script (panda codegen)
 COPY packages/client/panda.config.ts packages/client/
 
+# [VAD-IMPROVEMENT-#8] Pre-copy postinstall script that mirrors Silero VAD
+# assets out of node_modules. pnpm fires it as part of `pnpm install`, before
+# the rest of the source tree has been COPYd in, so it must exist already.
+COPY packages/client/scripts/copy-silero-assets.mjs packages/client/scripts/
+
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
