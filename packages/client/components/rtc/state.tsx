@@ -270,6 +270,9 @@ function getInputGateWorkletUrl(): string {
 async function measureDbfs(track: MediaStreamTrack): Promise<string> {
   try {
     const ctx = new AudioContext({ sampleRate: 48000 });
+    // Modern Chrome creates AudioContexts in 'suspended' state — without
+    // resume() the analyser never sees data and every measurement reads -∞.
+    await ctx.resume().catch(() => { /* ignore */ });
     const src = ctx.createMediaStreamSource(new MediaStream([track]));
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
@@ -296,7 +299,7 @@ const _prevTotalSamples = new Map<string, number>();
 const _prevBytesSent = new Map<string, { bytes: number; ts: number }>();
 const _prevPacketsSent = new Map<string, { packets: number; ts: number }>();
 
-async function printVoiceStats(room: Room, df3Active: boolean) {
+async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: MediaStreamTrack | null) {
   const ts = new Date().toLocaleTimeString();
   console.group(`[Voice Diagnostics] ${ts}`);
 
@@ -419,11 +422,19 @@ async function printVoiceStats(room: Room, df3Active: boolean) {
   // Level metering: all tracks measured in parallel (single ~150 ms sample)
   const levelChecks: Array<{ label: string; track: MediaStreamTrack }> = [];
   const micPubLevel = local.getTrackPublication(Track.Source.Microphone);
+  // Raw mic level — true pre-gate signal. Comes from Voice.rawMicTrack, which
+  // is captured before #applyInputGate's replaceTrack swaps the publication.
+  if (rawMicTrack) {
+    levelChecks.push({ label: "local (raw mic, pre-gate)", track: rawMicTrack });
+  }
   if (micPubLevel?.track) {
-    levelChecks.push({ label: "local (pre-gate/raw)", track: micPubLevel.track.mediaStreamTrack });
+    // After replaceTrack, micPubLevel.track.mediaStreamTrack is the gated
+    // worklet output — pre-DF3, post-gate. Useful to verify the gate is
+    // actually opening when you speak.
+    levelChecks.push({ label: "local (post-gate, pre-DF3)", track: micPubLevel.track.mediaStreamTrack });
     const proc = (micPubLevel.track as any).processor;
     if (df3Active && proc?.processedTrack) {
-      levelChecks.push({ label: "local (post-DF3)", track: proc.processedTrack as MediaStreamTrack });
+      levelChecks.push({ label: "local (post-DF3, transmitted)", track: proc.processedTrack as MediaStreamTrack });
     }
   }
   for (const p of remotes) {
@@ -508,6 +519,8 @@ class Voice {
   // Input sensitivity gate AudioContext + worklet node
   #inputGateCtx: AudioContext | null = null;
   #inputGateNode: AudioWorkletNode | null = null;
+  // Public read accessor for diagnostics — returns the pre-gate mic track.
+  get rawMicTrack(): MediaStreamTrack | null { return this.#rawMicTrack; }
   // [VAD-IMPROVEMENT-#8] Silero VAD second-pass classifier (loaded on demand
   // via dynamic import). null when disabled or not yet running.
   // Type kept loose because the package's MicVAD type isn't re-exported cleanly.
@@ -1717,7 +1730,7 @@ export function VoiceContext(props: { children: JSX.Element }) {
       }
       const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
       const df3Active = !!(micPub?.track as LocalAudioTrack | undefined)?.processor;
-      await printVoiceStats(room, df3Active);
+      await printVoiceStats(room, df3Active, voice.rawMicTrack);
     };
     console.log("[Voice] 🔍 Type window.stoatDiag() in the console to print voice stats");
 
@@ -1727,7 +1740,7 @@ export function VoiceContext(props: { children: JSX.Element }) {
       if (room && voice.state() === "CONNECTED") {
         const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
         const df3Active = !!(micPub?.track as LocalAudioTrack | undefined)?.processor;
-        await printVoiceStats(room, df3Active);
+        await printVoiceStats(room, df3Active, voice.rawMicTrack);
       }
     }, 30_000);
 
