@@ -2,8 +2,8 @@ import { State } from "..";
 
 import { AbstractStore } from ".";
 
-export type ScreenShareQualityName = "low" | "high" | "text";
-export const ScreenShareQualityNames: ScreenShareQualityName[] = ["low", "high", "text"];
+export type ScreenShareQualityName = "low" | "high" | "4k" | "text";
+export const ScreenShareQualityNames: ScreenShareQualityName[] = ["low", "high", "4k", "text"];
 
 export interface TypeVoice {
   preferredAudioInputDevice?: string;
@@ -11,7 +11,13 @@ export interface TypeVoice {
 
   echoCancellation: boolean;
   noiseSupression: boolean;
-  autoGainControl: boolean;
+  noiseSupressionLevel: number;
+
+  inputSensitivity: number;      // gate threshold in dBFS, e.g. -60
+  inputSensitivityAuto: boolean; // auto-calibrate on connect
+  // [VAD-IMPROVEMENT-#8] Layer Silero VAD on top of the RMS gate as a
+  // second-pass classifier. Default on. Toggle off to fall back to RMS only.
+  useSileroVad: boolean;
 
   inputVolume: number;
   outputVolume: number;
@@ -76,18 +82,21 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     return {
       echoCancellation: true,
       noiseSupression: true,
-      autoGainControl: true,
+      noiseSupressionLevel: 40,
+      inputSensitivity: -60,
+      inputSensitivityAuto: true,
+      useSileroVad: true,
       inputVolume: 1.0,
-      outputVolume: 1.0,
+      outputVolume: 2.0,
       deafen: false,
       micOn: true,
-      screenShareQuality: "low",
-      screenShareQualityAsk: true,
+      screenShareQuality: "high",
+      screenShareQualityAsk: false,
       userVolumes: {},
       userMutes: {},
       screenshareVolumes: {},
       screenshareMutes: {},
-      screenshareFrameRate: 15,
+      screenshareFrameRate: 60,
       pushToTalkEnabled: false,
       pushToTalkKeybind: "V",
       pushToTalkMode: "hold",
@@ -131,15 +140,27 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       data.noiseSupression = input.noiseSupression;
     }
 
-    if (typeof input.autoGainControl === "boolean") {
-      data.autoGainControl = input.autoGainControl;
+    if (typeof input.noiseSupressionLevel === "number") {
+      data.noiseSupressionLevel = Math.max(0, Math.min(100, input.noiseSupressionLevel));
+    }
+
+    if (typeof input.inputSensitivity === "number") {
+      data.inputSensitivity = Math.max(-100, Math.min(-20, input.inputSensitivity));
+    }
+
+    if (typeof input.inputSensitivityAuto === "boolean") {
+      data.inputSensitivityAuto = input.inputSensitivityAuto;
+    }
+
+    if (typeof input.useSileroVad === "boolean") {
+      data.useSileroVad = input.useSileroVad;
     }
 
     if (typeof input.inputVolume === "number") {
       data.inputVolume = input.inputVolume;
     }
 
-    if (typeof input.outputVolume === "number") {
+    if (typeof input.outputVolume === "number" && input.outputVolume !== 1.0) {
       data.outputVolume = input.outputVolume;
     }
 
@@ -388,11 +409,36 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     this.set("noiseSupression", value);
   }
 
-  /**
-   * Set auto gain control
-   */
-  set autoGainControl(value: boolean) {
-    this.set("autoGainControl", value);
+  get noiseSupressionLevel(): number {
+    return this.get().noiseSupressionLevel;
+  }
+
+  set noiseSupressionLevel(value: number) {
+    this.set("noiseSupressionLevel", Math.max(0, Math.min(100, value)));
+  }
+
+  get inputSensitivity(): number {
+    return this.get().inputSensitivity;
+  }
+
+  set inputSensitivity(value: number) {
+    this.set("inputSensitivity", Math.max(-100, Math.min(-20, value)));
+  }
+
+  get inputSensitivityAuto(): boolean {
+    return this.get().inputSensitivityAuto;
+  }
+
+  set inputSensitivityAuto(value: boolean) {
+    this.set("inputSensitivityAuto", value);
+  }
+
+  get useSileroVad(): boolean {
+    return this.get().useSileroVad;
+  }
+
+  set useSileroVad(value: boolean) {
+    this.set("useSileroVad", value);
   }
 
   /**
@@ -435,13 +481,6 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    */
   get noiseSupression(): boolean | undefined {
     return this.get().noiseSupression;
-  }
-
-  /**
-   * Get auto gain control
-   */
-  get autoGainControl(): boolean | undefined {
-    return this.get().autoGainControl;
   }
 
   /**

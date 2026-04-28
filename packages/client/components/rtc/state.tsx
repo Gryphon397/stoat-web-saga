@@ -17,7 +17,7 @@ import {
   useTracks,
 } from "solid-livekit-components";
 
-import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, Participant, RemoteAudioTrack, Room, ScreenSharePresets, Track, TrackPublication, VideoPresets, VideoResolution } from "livekit-client";
+import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, LocalTrackPublication, LocalVideoTrack, Participant, RemoteAudioTrack, Room, ScreenSharePresets, Track, TrackPublication, VideoPresets, VideoResolution } from "livekit-client";
 import { DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
 import { voiceNotifications } from "./VoiceNotifications";
 import { ModalController, useModals } from "@revolt/modal";
@@ -40,6 +40,7 @@ declare global {
       selectSource: (id: string) => void;
       cancel: () => void;
       onWindowSelected: (callback: (sourceId: string) => void) => void;
+      listSources?: () => Promise<Array<{ id: string; name: string; thumbnail: string }>>;
     };
     appAudioCapture?: {
       start: (sourceId: string) => Promise<boolean>;
@@ -177,6 +178,115 @@ function getPcmFeederWorkletUrl(): string {
   return pcmFeederWorkletUrl;
 }
 
+// Discord-style input sensitivity gate AudioWorklet.
+// Fixed threshold (set from stored settings or auto-calibration) — not adaptive.
+// Threshold is updated live via port.postMessage({ threshold: <linear RMS> }).
+// No comfort noise injection — DTX is disabled at both signaling and codec level.
+//
+// Each VAD-IMPROVEMENT-#N block below is independently revertable; grep for the
+// marker to find the original behavior to restore.
+const inputGateWorkletCode = `
+class StoatInputGateProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._threshold = 0.001; // -60 dBFS default; overwritten immediately via port
+    this._gateGain = 0.0;
+    this._holdCounter = 0;
+    this._HOLD_FRAMES = 30;
+    // [VAD-IMPROVEMENT-#6] Slower attack: was 0.8 (~2.7 ms), clipped plosives.
+    // 0.3 ≈ 10 ms — preserves "p"/"t"/"k" onsets without losing snap.
+    // To revert: set _ATTACK back to 0.8.
+    this._ATTACK = 0.3;
+    this._RELEASE = 0.03;
+    // [VAD-IMPROVEMENT-#4] Amplitude hysteresis: open at threshold, close 10 dB
+    // lower. Single-threshold gates chatter at the boundary on breath/HVAC.
+    // To revert: set _CLOSE_RATIO to 1.0 (collapses to single threshold).
+    this._CLOSE_RATIO = Math.pow(10, -10 / 20); // ≈ 0.3162
+    // [VAD-IMPROVEMENT-#8] Silero VAD AND-gate. When sileroEnabled=true, the
+    // worklet output also requires vadActive=true (set via main thread from
+    // @ricky0123/vad-web onSpeechStart/onSpeechEnd). When sileroEnabled=false,
+    // the worklet behaves as RMS-only.
+    // To revert: ignore vadActive entirely in the targetGain calc.
+    this._sileroEnabled = false;
+    this._vadActive = false;
+    this.port.onmessage = (e) => {
+      if (typeof e.data.threshold === 'number') this._threshold = e.data.threshold;
+      if (typeof e.data.sileroEnabled === 'boolean') this._sileroEnabled = e.data.sileroEnabled;
+      if (typeof e.data.vadActive === 'boolean') this._vadActive = e.data.vadActive;
+    };
+  }
+  process(inputs, outputs) {
+    // [VAD-IMPROVEMENT-#5] Two-input worklet:
+    //   input 0 = clean audio (passed through gate, never bandpassed)
+    //   input 1 = bandpass-filtered side-chain (used only for RMS detection)
+    // Bandpass keeps HVAC/rumble (<300 Hz) and hiss (>3.4 kHz) out of the
+    // gate decision without colouring the audio that gets transmitted.
+    // To revert: connect the same source to both inputs in #applyInputGate.
+    const audioIn = inputs[0] && inputs[0][0];
+    const detectorIn = (inputs[1] && inputs[1][0]) || audioIn;
+    const out = outputs[0];
+    if (!audioIn || !out || !out[0]) return true;
+    const outCh = out[0];
+    let ss = 0;
+    for (let i = 0; i < detectorIn.length; i++) ss += detectorIn[i] * detectorIn[i];
+    const rms = Math.sqrt(ss / detectorIn.length);
+    // [VAD-IMPROVEMENT-#4] Dual-threshold hysteresis. RMS in [closeThresh,
+    // _threshold) is a dead-zone — hold counter does not change.
+    const closeThresh = this._threshold * this._CLOSE_RATIO;
+    if (rms >= this._threshold) {
+      this._holdCounter = this._HOLD_FRAMES;
+    } else if (rms < closeThresh) {
+      this._holdCounter = this._holdCounter > 0 ? this._holdCounter - 1 : 0;
+    }
+    const rmsOpen = this._holdCounter > 0;
+    // [VAD-IMPROVEMENT-#8] Combine RMS gate with Silero veto (AND mode).
+    const sileroOk = !this._sileroEnabled || this._vadActive;
+    const targetGain = (rmsOpen && sileroOk) ? 1.0 : 0.0;
+    this._gateGain += targetGain > this._gateGain ? this._ATTACK : -this._RELEASE;
+    this._gateGain = this._gateGain < 0.0 ? 0.0 : this._gateGain > 1.0 ? 1.0 : this._gateGain;
+    // DF3 runs after the gate. Pure silence causes DF3 to adapt its noise model to
+    // zero-signal; on the next speech onset it briefly treats voice as noise (gargling).
+    // A -54 dBFS bleed (~0.002 linear) keeps DF3 "warm" without transmitting audible audio.
+    const g = this._gateGain > 0.002 ? this._gateGain : 0.002;
+    for (let i = 0; i < audioIn.length; i++) {
+      outCh[i] = audioIn[i] * g;
+    }
+    return true;
+  }
+}
+registerProcessor('stoat-input-gate', StoatInputGateProcessor);
+`;
+let inputGateWorkletUrl: string | null = null;
+function getInputGateWorkletUrl(): string {
+  if (!inputGateWorkletUrl) {
+    inputGateWorkletUrl = URL.createObjectURL(
+      new Blob([inputGateWorkletCode], { type: "application/javascript" }),
+    );
+  }
+  return inputGateWorkletUrl;
+}
+
+/** Tap a MediaStreamTrack for ~150 ms and return its RMS level as a dBFS string. */
+async function measureDbfs(track: MediaStreamTrack): Promise<string> {
+  try {
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    const src = ctx.createMediaStreamSource(new MediaStream([track]));
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);
+    await new Promise<void>(r => setTimeout(r, 150));
+    const buf = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buf);
+    let ss = 0;
+    for (const v of buf) ss += v * v;
+    const rms = Math.sqrt(ss / buf.length);
+    await ctx.close();
+    return rms > 1e-7 ? `${(20 * Math.log10(rms)).toFixed(1)} dBFS` : "-∞";
+  } catch {
+    return "err";
+  }
+}
+
 /**
  * Print WebRTC stats for all active audio tracks to the browser console.
  * Called by window.stoatDiag() and automatically every 30s while connected.
@@ -233,6 +343,33 @@ async function printVoiceStats(room: Room, df3Active: boolean) {
     console.log("  Mic: not publishing");
   }
 
+  // Upload: screenshare video track sender stats
+  const ssPub = local.getTrackPublication(Track.Source.ScreenShare);
+  if (ssPub?.track) {
+    try {
+      const sender = (ssPub.track as any)?.sender as RTCRtpSender | undefined;
+      if (sender) {
+        const stats = await sender.getStats();
+        stats.forEach((r) => {
+          if (r.type === "outbound-rtp" && r.kind === "video") {
+            const ssKey = "local-screenshare";
+            const ssNow = Date.now();
+            const ssPrev = _prevBytesSent.get(ssKey);
+            const ssKbps = ssPrev
+              ? (((r.bytesSent - ssPrev.bytes) * 8) / ((ssNow - ssPrev.ts) / 1000) / 1000).toFixed(1)
+              : "—";
+            _prevBytesSent.set(ssKey, { bytes: r.bytesSent, ts: ssNow });
+            const fps = (r.framesPerSecond ?? 0).toFixed(1);
+            const limitReason = r.qualityLimitationReason ?? "unknown";
+            console.log(`  Upload screenshare: ${r.frameWidth ?? "?"}×${r.frameHeight ?? "?"}@${fps}fps, ${ssKbps}kbps | limit=${limitReason}`);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("  Could not get screenshare sender stats:", e);
+    }
+  }
+
   // Download: per-remote-participant audio receiver stats
   const remotes = Array.from(room.remoteParticipants.values());
   if (remotes.length === 0) {
@@ -279,7 +416,53 @@ async function printVoiceStats(room: Room, df3Active: boolean) {
     }
   }
 
+  // Level metering: all tracks measured in parallel (single ~150 ms sample)
+  const levelChecks: Array<{ label: string; track: MediaStreamTrack }> = [];
+  const micPubLevel = local.getTrackPublication(Track.Source.Microphone);
+  if (micPubLevel?.track) {
+    levelChecks.push({ label: "local (pre-gate/raw)", track: micPubLevel.track.mediaStreamTrack });
+    const proc = (micPubLevel.track as any).processor;
+    if (df3Active && proc?.processedTrack) {
+      levelChecks.push({ label: "local (post-DF3)", track: proc.processedTrack as MediaStreamTrack });
+    }
+  }
+  for (const p of remotes) {
+    const pub = p.getTrackPublication(Track.Source.Microphone);
+    if (pub?.track) {
+      levelChecks.push({
+        label: `${p.identity}${pub.isMuted ? " [muted]" : ""}`,
+        track: (pub.track as RemoteAudioTrack).mediaStreamTrack,
+      });
+    }
+  }
+  if (levelChecks.length > 0) {
+    const levels = await Promise.all(levelChecks.map(({ track }) => measureDbfs(track)));
+    console.log("  Signal levels (150 ms sample):");
+    levelChecks.forEach(({ label }, i) => console.log(`    ${label}: ${levels[i]}`));
+  }
+
   console.groupEnd();
+}
+
+// Inject x-google-start-bitrate/x-google-min-bitrate into all video codec fmtp
+// lines in an SDP offer. Chrome/Electron reads these to seed its GCC bandwidth
+// estimator, so the screenshare starts at ~6Mbps instead of ramping from ~300kbps.
+function mungeSdpGCC(sdp: string): string {
+  const videoPts = new Set<string>();
+  const videoLineMatch = sdp.match(/^m=video \S+ \S+ (.+)$/m);
+  if (videoLineMatch) videoLineMatch[1].split(" ").forEach(pt => videoPts.add(pt));
+
+  let inVideo = false;
+  return sdp.split("\r\n").map(line => {
+    if (line.startsWith("m=")) inVideo = line.startsWith("m=video ");
+    if (inVideo && line.startsWith("a=fmtp:")) {
+      const pt = line.match(/^a=fmtp:(\d+)/)?.[1];
+      if (pt && videoPts.has(pt) && !line.includes("x-google-start-bitrate")) {
+        return line + ";x-google-start-bitrate=6000;x-google-min-bitrate=2000";
+      }
+    }
+    return line;
+  }).join("\r\n");
 }
 
 class Voice {
@@ -305,6 +488,9 @@ class Voice {
 
   vidTracks: Accessor<TrackReferenceOrPlaceholder[]>;
 
+  stoppedScreenshares: Accessor<ReadonlySet<string>>;
+  #setStoppedScreenshares: Setter<Set<string>>;
+
   fullscreen: Accessor<boolean>;
   #setFullscreen: Setter<boolean>;
 
@@ -319,12 +505,40 @@ class Voice {
 
   #livekitUrl = "";
   get livekitUrl() { return this.#livekitUrl; }
+  // Input sensitivity gate AudioContext + worklet node
+  #inputGateCtx: AudioContext | null = null;
+  #inputGateNode: AudioWorkletNode | null = null;
+  // [VAD-IMPROVEMENT-#8] Silero VAD second-pass classifier (loaded on demand
+  // via dynamic import). null when disabled or not yet running.
+  // Type kept loose because the package's MicVAD type isn't re-exported cleanly.
+  #sileroVad: { destroy(): void; start?(): void; pause?(): void } | null = null;
+  // Raw (pre-gate) mic track, kept for periodic auto-calibration
+  #rawMicTrack: MediaStreamTrack | null = null;
+  #calibrationInterval: ReturnType<typeof setInterval> | null = null;
+  // Rolling history of per-window minimum RMS values (~10 min at 30 s cadence)
+  #calibrationHistory: number[] = [];
   // Per-process audio capture state
   #appAudioCtx: AudioContext | null = null;
   #appAudioWorklet: AudioWorkletNode | null = null;
   #appAudioDestination: MediaStreamAudioDestinationNode | null = null;
   #appAudioDataHandler: ((chunk: Uint8Array) => void) | null = null;
   #appAudioSourceId: string | null = null;
+  // Electron picker promise API
+  #pickerResolve: ((id: string | null) => void) | null = null;
+  #pickSourcesCallback: ((sources: Array<{ id: string; name: string; thumbnail: string }>) => void) | null = null;
+
+  setPickSourcesHandler(fn: (sources: Array<{ id: string; name: string; thumbnail: string }>) => void) {
+    this.#pickSourcesCallback = fn;
+  }
+
+  hasPendingPickerSelection(): boolean {
+    return this.#pickerResolve !== null;
+  }
+
+  notifySourceSelected(id: string | null) {
+    this.#pickerResolve?.(id);
+    this.#pickerResolve = null;
+  }
 
   constructor(voiceSettings: VoiceSettings, modals: ModalController) {
     this.#settings = voiceSettings;
@@ -353,6 +567,10 @@ class Voice {
     this.#setScreenshare = setScreenshare;
 
     this.vidTracks = () => [];
+
+    const [stoppedScreenshares, setStoppedScreenshares] = createSignal<Set<string>>(new Set(), { equals: false });
+    this.stoppedScreenshares = stoppedScreenshares;
+    this.#setStoppedScreenshares = setStoppedScreenshares;
 
     const [fullscreen, setFullscreen] = createSignal(false);
     this.fullscreen = fullscreen;
@@ -403,11 +621,9 @@ class Voice {
       },
       audioCaptureDefaults: {
         deviceId: this.#settings.preferredAudioInputDevice,
-        // Disable browser EC when DF3 is active — the two algorithms
-        // running in series produce static artifacts.
-        echoCancellation: this.#settings.noiseSupression ? false : (this.#settings.echoCancellation ?? true),
+        echoCancellation: this.#settings.echoCancellation ?? true,
         noiseSuppression: false, // DF3 handles noise suppression via setProcessor
-        autoGainControl: this.#settings.autoGainControl,
+        autoGainControl: true,
       },
       videoCaptureDefaults: {
         resolution: VideoPresets.h1080.resolution,
@@ -422,10 +638,12 @@ class Voice {
       this.#setChannel(channel);
       this.#setState("CONNECTING");
 
-      // PTT always joins muted; without PTT, restore persisted mic state
+      // PTT always joins muted; without PTT, always join unmuted
       if (this.#settings.pushToTalkEnabled) {
         debugLog("PTT-WEB", "PTT enabled - joining muted");
         this.#settings.micOn = false;
+      } else {
+        this.#settings.micOn = true;
       }
       this.#settings.deafen = false;
       this.#setVideo(false);
@@ -435,22 +653,24 @@ class Voice {
     room.addListener("connected", () => {
       this.#setState("CONNECTED");
       if (this.speakingPermission)
-        room.localParticipant.setMicrophoneEnabled(this.#settings.micOn).then(async (track) => {
+        room.localParticipant.setMicrophoneEnabled(this.#settings.micOn).then((track) => {
           this.#settings.micOn = track != null;
-          if (track?.audioTrack && this.#settings.noiseSupression) {
-            try {
-              await track.audioTrack.setProcessor(
-                new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" } }),
-              );
-              console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
-            } catch (e) {
-              console.warn("[Voice] ❌ DeepFilterNet3 failed to start:", e);
-            }
-          }
         });
+      room.localParticipant.setAttributes({ deafened: this.#settings.deafen ? "true" : "false" });
       debugLog("PTT-WEB", "Room connected");
       this.#setState("CONNECTED");
       voiceNotifications.playSelfJoin();
+      // Seed history with 3 copies of the stored threshold so the first real
+      // measurement can't corrupt the gate if the user happens to be talking.
+      const storedDbfs = this.#settings.inputSensitivity ?? -60;
+      const storedRms = Math.pow(10, storedDbfs / 20);
+      this.#calibrationHistory = [storedRms, storedRms, storedRms];
+      // Start periodic auto-calibration (same cadence as voice diagnostics).
+      this.#calibrationInterval = setInterval(() => {
+        if ((this.#settings.inputSensitivityAuto ?? true) && this.#rawMicTrack) {
+          void this.#calibrateInputSensitivity(this.#rawMicTrack);
+        }
+      }, 30_000);
     });
 
     room.addListener("reconnecting", () => {
@@ -470,6 +690,42 @@ class Voice {
       _prevTotalSamples.clear();
       _prevBytesSent.clear();
       _prevPacketsSent.clear();
+      if (this.#calibrationInterval) {
+        clearInterval(this.#calibrationInterval);
+        this.#calibrationInterval = null;
+      }
+      this.#rawMicTrack = null;
+      this.#calibrationHistory = [];
+    });
+
+    // Attach input gate + DF3 to any newly published mic track — covers initial
+    // connect, PTT first-press (track created on demand), and post-reconnect republish.
+    room.addListener("localTrackPublished", async (publication: LocalTrackPublication) => {
+      if (publication.source !== Track.Source.Microphone) return;
+      const track = publication.track as LocalAudioTrack | undefined;
+      if (!track) return;
+
+      // Input gate runs pre-DF3; #applyInputGate also captures #rawMicTrack.
+      await this.#applyInputGate(track);
+
+      // Initial calibration — periodic calibration is driven by #calibrationInterval.
+      if ((this.#settings.inputSensitivityAuto ?? true) && this.#rawMicTrack) {
+        void this.#calibrateInputSensitivity(this.#rawMicTrack);
+      }
+
+      if (!this.#settings.noiseSupression) return;
+      if (!DeepFilterNoiseFilterProcessor.isSupported()) {
+        console.warn("[Voice] DF3 not supported in this browser");
+        return;
+      }
+      try {
+        await track.setProcessor(
+          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" }, noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 20 }),
+        );
+        console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
+      } catch (e) {
+        console.warn("[Voice] ❌ DeepFilterNet3 failed to start:", e);
+      }
     });
 
     // When the shared window closes, LiveKit unpublishes the track automatically.
@@ -550,6 +806,7 @@ class Voice {
       if (!room.localParticipant.isMicrophoneEnabled) {
         debugLog("PTT-WEB", "PTT disabled and mic is muted, explicitly unmuting...");
         await room.localParticipant.setMicrophoneEnabled(true);
+        this.#settings.micOn = true;
         debugLog("PTT-WEB", "Mic explicitly unmuted, state:", room.localParticipant.isMicrophoneEnabled);
       }
     }
@@ -566,12 +823,10 @@ class Voice {
     const ecEnabled = this.#settings.echoCancellation ?? true;
 
     try {
-      // Disable browser EC when DF3 is active — the two algorithms
-      // running in series produce static artifacts.
       const options: AudioCaptureOptions = {
         noiseSuppression: false,
-        echoCancellation: nsEnabled ? false : ecEnabled,
-        autoGainControl: this.#settings.autoGainControl,
+        echoCancellation: ecEnabled,
+        autoGainControl: true,
         deviceId: this.#settings.preferredAudioInputDevice,
       };
       await track.restartTrack(options);
@@ -579,10 +834,13 @@ class Voice {
       console.warn("[Voice] restartTrack failed:", e);
     }
 
+    // Reapply input gate — restartTrack resets to the raw getUserMedia track.
+    await this.#applyInputGate(track);
+
     try {
       if (nsEnabled) {
         await track.setProcessor(
-          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" } }),
+          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" }, noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 20 }),
         );
         console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
       } else {
@@ -601,6 +859,13 @@ class Voice {
 
     // Stop per-process audio capture if active
     this.#stopAppAudioCapture();
+    void this.#cleanupInputGate();
+    if (this.#calibrationInterval) {
+      clearInterval(this.#calibrationInterval);
+      this.#calibrationInterval = null;
+    }
+    this.#rawMicTrack = null;
+    this.#calibrationHistory = [];
 
     voiceNotifications.playSelfLeave();
 
@@ -618,12 +883,15 @@ class Voice {
       this.#setVideo(false);
       this.#setFullscreen(false);
       this.vidTracks = () => [];
+      this.#setStoppedScreenshares(new Set());
     });
   }
 
   async toggleDeafen() {
     const wasDeafened = this.deafen();
-    this.#settings.deafen = !wasDeafened;
+    const newDeafened = !wasDeafened;
+    this.#settings.deafen = newDeafened;
+    this.room()?.localParticipant.setAttributes({ deafened: newDeafened ? "true" : "false" });
     if (!wasDeafened) {
       voiceNotifications.playDeafen();
     } else {
@@ -743,43 +1011,48 @@ class Voice {
     this.#setShowBar((s) => !s);
   }
 
+  stopWatchingScreenshare(identity: string) {
+    const focused = this.focusTrack();
+    if (focused?.participant.identity === identity && focused.source === Track.Source.ScreenShare) {
+      this.#setFocus(undefined);
+    }
+    this.#setStoppedScreenshares((prev) => {
+      prev.add(identity);
+      return prev;
+    });
+  }
+
+  isScreenshareStopped(identity: string) {
+    return this.stoppedScreenshares().has(identity);
+  }
+
   setAppAudioSourceId(id: string | null) {
     this.#appAudioSourceId = id;
   }
 
   getEnabledScreenShareQualities(): Partial<Record<ScreenShareQualityName, ScreenShareQuality>> {
+    const fps = this.#settings.screenshareFrameRate;
     const qualities: Partial<Record<ScreenShareQualityName, ScreenShareQuality>> = {
       low: {
         name: "low",
-        resolution: ScreenSharePresets.h720fps30.resolution,
-        fullName: "720p 30FPS",
+        resolution: { width: 1280, height: 720, frameRate: fps },
+        fullName: `720p ${fps}FPS`,
         contentHint: "motion",
       },
     };
 
-    const limit = this.getClient().configuration?.features.limits.default.video_resolution;
-    if (limit) {
-      if ((limit[0] === 0 || limit[0] >= 1920) && (limit[1] === 0 || limit[1] >= 1080)) {
-        qualities.high = {
-          name: "high",
-          resolution: ScreenSharePresets.h1080fps30.resolution,
-          fullName: "1080p 30FPS",
-          contentHint: "motion",
-        };
-        const originalResolution = { ...ScreenSharePresets.original.resolution, frameRate: 5, aspectRatio: 0 };
-        originalResolution.width = limit[0];
-        originalResolution.height = limit[1];
-        if (originalResolution.height !== 0 && originalResolution.width !== 0) {
-          originalResolution.aspectRatio = originalResolution.width / originalResolution.height;
-        }
-        qualities.text = {
-          name: "text",
-          resolution: originalResolution,
-          fullName: "Source 5FPS",
-          contentHint: "text",
-        };
-      }
-    }
+    qualities.high = {
+      name: "high",
+      resolution: { width: 1920, height: 1080, frameRate: fps },
+      fullName: `1080p ${fps}FPS`,
+      contentHint: "motion",
+    };
+    qualities["4k"] = {
+      name: "4k",
+      resolution: { width: 3840, height: 2160, frameRate: fps },
+      fullName: `4K ${fps}FPS`,
+      contentHint: "motion",
+    };
     return qualities;
   }
 
@@ -795,33 +1068,141 @@ class Voice {
       return;
     }
 
-    // Electron: frame rate already chosen in the source picker dialog — skip web quality modal
-    if (window.desktopCapture) {
+    // Electron: use getUserMedia with chromeMediaSource:'desktop' for proper frame rate control.
+    // setDisplayMediaRequestHandler + DesktopCapturerSource delivers only ~2fps regardless of
+    // the frameRate constraint because the constraint is not honored in that callback path.
+    if (window.desktopCapture?.listSources) {
+      const fps = this.#settings.screenshareFrameRate;
+      const maxBitrate = fps >= 60 ? 8_000_000 : fps >= 30 ? 5_000_000 : 2_000_000;
+      const qualities = this.getEnabledScreenShareQualities();
+      const quality = qualities[this.#settings.screenShareQuality] ?? qualities.low!;
+      const capWidth = quality.resolution.width || undefined;
+      const capHeight = quality.resolution.height || undefined;
+
+      // Get source list and show picker
+      let sources: Array<{ id: string; name: string; thumbnail: string }>;
       try {
-        await room.localParticipant.setScreenShareEnabled(
-          true,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          { audio: true, video: { frameRate: this.#settings.screenshareFrameRate } as any },
-          {
-            screenShareEncoding: {
-              maxBitrate: 3_000_000,
-              maxFramerate: this.#settings.screenshareFrameRate,
-            },
-            simulcast: false,
-          },
-        );
+        sources = await window.desktopCapture.listSources();
       } catch (e: any) {
-        console.warn("[Voice] screenshare cancelled or failed:", e?.message ?? e);
+        console.warn("[Voice] Failed to list screenshare sources:", e?.message ?? e);
+        return;
+      }
+
+      const sourceId = await new Promise<string | null>((resolve) => {
+        this.#pickerResolve = resolve;
+        this.#pickSourcesCallback?.(sources);
+      });
+
+      if (!sourceId) {
         this.#appAudioSourceId = null;
         return;
+      }
+
+      // Window captures use per-process audio; screen captures get loopback below
+      this.#appAudioSourceId = sourceId.startsWith("window:") ? sourceId : null;
+
+      // Capture video via getUserMedia with mandatory constraints — the only Electron path
+      // that actually honors frameRate (setDisplayMediaRequestHandler ignores it).
+      let videoStream: MediaStream;
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: "desktop",
+              chromeMediaSourceId: sourceId,
+              minFrameRate: fps,
+              maxFrameRate: fps,
+              minWidth: 1280,
+              minHeight: 720,
+              ...(capWidth && { maxWidth: capWidth }),
+              ...(capHeight && { maxHeight: capHeight }),
+            },
+          } as any,
+        });
+      } catch (e: any) {
+        console.warn("[Voice] screenshare getUserMedia failed:", e?.message ?? e);
+        this.#appAudioSourceId = null;
+        return;
+      }
+
+      // 'motion' tells Chrome to use video-mode encoding (fps-first) instead of
+      // screenshot mode (resolution-first). Without it, GCC slow-start causes 1-3fps
+      // for several minutes even on a local network with plenty of bandwidth.
+      const videoTrack = videoStream.getVideoTracks()[0];
+      videoTrack.contentHint = 'motion';
+
+      // Pre-seed Chrome's GCC bandwidth estimator so the screenshare starts at
+      // ~6Mbps instead of ~300kbps, skipping the 3+ minute slow-start ramp.
+      // Intercepting createOffer on the LiveKit publisher PC for this one negotiation.
+      const publisherPc = (room as any).engine?.publisher?.pc as RTCPeerConnection | undefined;
+      let origCreateOffer: typeof RTCPeerConnection.prototype.createOffer | undefined;
+      if (publisherPc) {
+        origCreateOffer = publisherPc.createOffer.bind(publisherPc);
+        (publisherPc as any).createOffer = async (...args: any[]) => {
+          const offer = await origCreateOffer!(...args);
+          return new RTCSessionDescription({ type: offer.type, sdp: mungeSdpGCC(offer.sdp ?? "") });
+        };
+      }
+
+      try {
+        await room.localParticipant.publishTrack(videoTrack, {
+          source: Track.Source.ScreenShare,
+          screenShareEncoding: { maxBitrate, maxFramerate: fps },
+          simulcast: false,
+        });
+      } catch (e: any) {
+        console.warn("[Voice] screenshare publish failed:", e?.message ?? e);
+        videoStream.getTracks().forEach((t) => t.stop());
+        this.#appAudioSourceId = null;
+        return;
+      } finally {
+        if (publisherPc && origCreateOffer) publisherPc.createOffer = origCreateOffer;
+      }
+
+      // Override degradationPreference so the encoder drops resolution instead of
+      // framerate when GCC bandwidth estimate is low at startup. Without this,
+      // default 'maintain-resolution' causes 1-3fps at full resolution for minutes.
+      try {
+        const ssPub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+        const sender = (ssPub?.track as any)?.sender as RTCRtpSender | undefined;
+        if (sender) {
+          const params = sender.getParameters();
+          for (const enc of params.encodings) {
+            (enc as any).degradationPreference = 'maintain-framerate';
+          }
+          await sender.setParameters(params);
+        }
+      } catch {
+        // Non-fatal — degradationPreference is a hint, not required for correctness
       }
 
       this.#setScreenshare(room.localParticipant.isScreenShareEnabled);
       if (!room.localParticipant.isScreenShareEnabled) return;
 
+      const s = videoStream.getVideoTracks()[0].getSettings();
+      console.log(`[Screenshare] ${s.width ?? "?"}×${s.height ?? "?"}@${s.frameRate ?? "?"}fps | encoding: ${maxBitrate / 1_000_000}Mbps max / ${fps}fps max`);
+
       voiceNotifications.playScreenshareStart();
+
+      // Per-process audio for window captures
       if (this.#appAudioSourceId) {
         await this.#publishAppAudioTrack(room);
+      } else {
+        // Best-effort system audio loopback for screen captures
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { mandatory: { chromeMediaSource: "desktop", chromeMediaSourceId: sourceId } } as any,
+            video: false,
+          });
+          if (audioStream.getAudioTracks().length > 0) {
+            await room.localParticipant.publishTrack(audioStream.getAudioTracks()[0], {
+              source: Track.Source.ScreenShareAudio,
+            });
+          }
+        } catch {
+          // Loopback audio unavailable — silent failure is acceptable
+        }
       }
       return;
     }
@@ -829,16 +1210,20 @@ class Voice {
     // Web: use quality preset, show picker modal after stream starts
     const qualities = this.getEnabledScreenShareQualities();
     const quality = qualities[this.#settings.screenShareQuality] ?? qualities.low!;
+    // When asking, capture at max available quality so user can choose without re-capture
+    const captureQuality = this.#settings.screenShareQualityAsk ? (qualities.high ?? quality) : quality;
+    const capFps = captureQuality.resolution.frameRate ?? 30;
+    const maxBitrate = capFps >= 60 ? 8_000_000 : capFps >= 30 ? 5_000_000 : 2_000_000;
 
     let localTrack: Awaited<ReturnType<typeof room.localParticipant.setScreenShareEnabled>>;
     try {
       localTrack = await room.localParticipant.setScreenShareEnabled(
         true,
-        { audio: true },
+        { audio: true, resolution: captureQuality.resolution },
         {
           screenShareEncoding: {
-            maxBitrate: 3_000_000,
-            maxFramerate: quality.resolution.frameRate ?? 30,
+            maxBitrate,
+            maxFramerate: capFps,
           },
           simulcast: false,
         },
@@ -872,9 +1257,9 @@ class Voice {
           const q = qualities[qualityName] ?? qualities.low!;
           if (localTrack?.videoTrack) {
             await localTrack.videoTrack.mediaStreamTrack.applyConstraints({
-              frameRate: { max: q.resolution.frameRate },
-              ...(q.resolution.width ? { width: { max: q.resolution.width } } : {}),
-              ...(q.resolution.height ? { height: { max: q.resolution.height } } : {}),
+              frameRate: { ideal: q.resolution.frameRate },
+              ...(q.resolution.width ? { width: { ideal: q.resolution.width } } : {}),
+              ...(q.resolution.height ? { height: { ideal: q.resolution.height } } : {}),
             });
             localTrack.videoTrack.mediaStreamTrack.contentHint = q.contentHint;
           }
@@ -971,6 +1356,172 @@ class Voice {
     this.#appAudioSourceId = null;
   }
 
+  async #applyInputGate(track: LocalAudioTrack): Promise<void> {
+    await this.#cleanupInputGate();
+    const dbfs = this.#settings.inputSensitivity ?? -60;
+    const threshold = Math.pow(10, dbfs / 20);
+    try {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      await ctx.audioWorklet.addModule(getInputGateWorkletUrl());
+      // Capture raw track before replaceTrack swaps track.mediaStreamTrack.
+      this.#rawMicTrack = track.mediaStreamTrack;
+      const src = ctx.createMediaStreamSource(new MediaStream([this.#rawMicTrack.clone()]));
+
+      // [VAD-IMPROVEMENT-#5] Build a 300-3400 Hz speech-band side-chain via
+      // cascaded high-pass + low-pass biquads (Butterworth Q≈0.707). Only the
+      // detector input sees the filter — clean audio path is untouched.
+      // To revert: connect src directly to gate input 1 and skip both biquads.
+      const hp = new BiquadFilterNode(ctx, { type: "highpass", frequency: 300, Q: 0.707 });
+      const lp = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 3400, Q: 0.707 });
+      src.connect(hp);
+      hp.connect(lp);
+
+      const gate = new AudioWorkletNode(ctx, "stoat-input-gate", {
+        numberOfInputs: 2,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      gate.port.postMessage({ threshold });
+
+      src.connect(gate, 0, 0); // input 0 = clean audio
+      lp.connect(gate, 0, 1);  // input 1 = bandpass-filtered detector
+
+      const dest = ctx.createMediaStreamDestination();
+      gate.connect(dest);
+      await track.replaceTrack(dest.stream.getAudioTracks()[0], true);
+      this.#inputGateCtx = ctx;
+      this.#inputGateNode = gate;
+      console.log(`[Voice] ✅ Input gate active, threshold=${dbfs.toFixed(1)} dBFS`);
+
+      // [VAD-IMPROVEMENT-#8] Silero second-pass classifier (default on).
+      // Loads onnxruntime-web (~5 MB cached) + silero_vad.onnx (~1 MB) on first
+      // attach. Falls back gracefully to RMS-only if the package fails to load.
+      // To revert: delete this block (gate already supports sileroEnabled=false).
+      if (this.#settings.useSileroVad ?? true) {
+        void this.#startSileroVad();
+      }
+    } catch (e) {
+      console.warn("[Voice] ❌ Input gate failed:", e);
+    }
+  }
+
+  // [VAD-IMPROVEMENT-#8] Start Silero VAD on the raw mic track. Idempotent.
+  // Assets (silero_vad_legacy.onnx, vad.worklet.bundle.min.js, ORT wasm) are
+  // self-hosted under /silero/ — see scripts/copy-silero-assets.mjs which
+  // mirrors them from node_modules on every pnpm install (postinstall).
+  async #startSileroVad(): Promise<void> {
+    if (this.#sileroVad) return;
+    if (!this.#rawMicTrack || !this.#inputGateNode) return;
+    try {
+      const { MicVAD } = await import("@ricky0123/vad-web");
+      const rawTrack = this.#rawMicTrack;
+      const vad = await MicVAD.new({
+        baseAssetPath: "/silero/",
+        onnxWASMBasePath: "/silero/",
+        getStream: async () => new MediaStream([rawTrack.clone()]),
+        onSpeechStart: () => {
+          this.#inputGateNode?.port.postMessage({ vadActive: true });
+        },
+        onSpeechEnd: () => {
+          this.#inputGateNode?.port.postMessage({ vadActive: false });
+        },
+      });
+      await vad.start();
+      this.#sileroVad = vad as unknown as { destroy(): void };
+      this.#inputGateNode.port.postMessage({ sileroEnabled: true });
+      console.log("[Voice] ✅ Silero VAD second-pass active (self-hosted assets)");
+    } catch (e) {
+      console.warn("[Voice] ❌ Silero VAD failed to load — falling back to RMS-only gate:", e);
+      this.#inputGateNode?.port.postMessage({ sileroEnabled: false });
+    }
+  }
+
+  // [VAD-IMPROVEMENT-#8] Stop and tear down Silero VAD. Idempotent.
+  async #stopSileroVad(): Promise<void> {
+    if (!this.#sileroVad) return;
+    try { this.#sileroVad.destroy(); } catch { /* ignore */ }
+    this.#sileroVad = null;
+    this.#inputGateNode?.port.postMessage({ sileroEnabled: false, vadActive: false });
+    console.log("[Voice] Silero VAD disabled");
+  }
+
+  // [VAD-IMPROVEMENT-#8] Public toggle — called by createEffect in VoiceContext.
+  setSileroEnabled(enabled: boolean): void {
+    if (enabled) void this.#startSileroVad();
+    else void this.#stopSileroVad();
+  }
+
+  async #cleanupInputGate(): Promise<void> {
+    await this.#stopSileroVad();
+    if (this.#inputGateCtx) {
+      try { await this.#inputGateCtx.close(); } catch { /* ignore */ }
+      this.#inputGateCtx = null;
+      this.#inputGateNode = null;
+    }
+  }
+
+  /** Send a new threshold to the running gate worklet without restarting the track. */
+  updateGateThreshold(dbfs: number): void {
+    if (this.#inputGateNode) {
+      this.#inputGateNode.port.postMessage({ threshold: Math.pow(10, dbfs / 20) });
+    }
+  }
+
+  /**
+   * Measure ambient RMS from the raw mic track for 2 seconds.
+   * Takes the MINIMUM 100ms sample from the window — the quietest moment,
+   * which is ambient noise even if the user was speaking the rest of the time.
+   * Appends that minimum to a rolling history (up to 20 entries, ~10 min) and
+   * uses the median of the history as the floor, so a single window where the
+   * user never paused doesn't corrupt the threshold.
+   */
+  async #calibrateInputSensitivity(rawTrack: MediaStreamTrack): Promise<void> {
+    try {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      const src = ctx.createMediaStreamSource(new MediaStream([rawTrack]));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      src.connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      const samples: number[] = [];
+      await new Promise<void>(resolve => {
+        const id = setInterval(() => {
+          analyser.getFloatTimeDomainData(buf);
+          let ss = 0;
+          for (const v of buf) ss += v * v;
+          samples.push(Math.sqrt(ss / buf.length));
+        }, 100);
+        setTimeout(() => { clearInterval(id); resolve(); }, 2000);
+      });
+      await ctx.close();
+      // [VAD-IMPROVEMENT-#7] Use the 25th percentile of this window as the
+      // floor estimate, not the absolute minimum. A single freakishly-quiet
+      // 100 ms sample (a momentary lull or even a buffer underrun) shouldn't
+      // anchor the threshold unrealistically low. P25 is still a "quiet
+      // representative" but is far more stable.
+      // To revert: change p25Index to 0 (samples[0] = absolute min).
+      samples.sort((a, b) => a - b);
+      const p25Index = Math.floor(samples.length * 0.25);
+      const windowFloor = samples[p25Index] ?? 0.0001;
+      this.#calibrationHistory.push(windowFloor);
+      if (this.#calibrationHistory.length > 20) this.#calibrationHistory.shift();
+      // Median of rolling history — robust against windows where user never paused.
+      const sorted = [...this.#calibrationHistory].sort((a, b) => a - b);
+      const floorRms = sorted[Math.floor(sorted.length / 2)] ?? 0.0001;
+      // [VAD-IMPROVEMENT-#7] Clamp auto-result to ≥ -60 dBFS. In very quiet
+      // rooms (-90 dBFS floor) the +12 dB headroom would land around -78 dBFS,
+      // which makes the gate open on every breath and HVAC tick. -60 dBFS is
+      // a conservative but reliable floor — manual mode still allows -100.
+      // To revert: change -60 back to -100.
+      const dbfs = Math.max(-60, Math.min(-20, 20 * Math.log10(floorRms) + 12));
+      this.#settings.inputSensitivity = dbfs;
+      this.updateGateThreshold(dbfs);
+      console.log(`[Voice] 🎚 Auto-calibrated sensitivity: ${dbfs.toFixed(1)} dBFS (n=${this.#calibrationHistory.length})`);
+    } catch (e) {
+      console.warn("[Voice] ❌ Input sensitivity calibration failed:", e);
+    }
+  }
+
   getConnectedUser(userId: string) {
     return this.room()?.getParticipantByIdentity(userId);
   }
@@ -1019,6 +1570,7 @@ export function VoiceContext(props: { children: JSX.Element }) {
       window.desktopCapture.onSourcesAvailable((sources) => {
         setPickSources(sources);
       });
+      voice.setPickSourcesHandler(setPickSources);
     }
     debugLog("PTT-WEB", "VoiceContext mounted, checking for desktop PTT API...");
     debugLog("PTT-WEB", "window.pushToTalk exists:", typeof window !== "undefined" && !!window.pushToTalk);
@@ -1198,11 +1750,24 @@ export function VoiceContext(props: { children: JSX.Element }) {
     voiceNotifications.setSoundEnabled("ptt_deactivate", soundPttDeactivate);
   });
 
-  // live-update mic constraints when noise suppression / echo cancellation / AGC changes
+  // Live-update gate threshold on sensitivity slider changes — no track restart needed.
+  createEffect(() => {
+    const dbfs = state.voice.inputSensitivity;
+    if (typeof dbfs === "number") voice.updateGateThreshold(dbfs);
+  });
+
+  // [VAD-IMPROVEMENT-#8] Live-toggle Silero VAD on setting change without
+  // restarting the mic track. Safe before connect — setSileroEnabled no-ops
+  // when there's no input gate yet; it gets started on next #applyInputGate.
+  createEffect(() => {
+    voice.setSileroEnabled(state.voice.useSileroVad);
+  });
+
+  // live-update mic constraints when noise suppression / echo cancellation changes
   createEffect(() => {
     state.voice.noiseSupression;
+    state.voice.noiseSupressionLevel;
     state.voice.echoCancellation;
-    state.voice.autoGainControl;
     voice.applyMicConstraints();
   });
 
@@ -1227,11 +1792,19 @@ export function VoiceContext(props: { children: JSX.Element }) {
           <ScreenSharePicker
             sources={pickSources()}
             onSelect={(id) => {
-              window.desktopCapture!.selectSource(id);
+              if (voice.hasPendingPickerSelection()) {
+                voice.notifySourceSelected(id);
+              } else {
+                window.desktopCapture!.selectSource(id);
+              }
               setPickSources([]);
             }}
             onCancel={() => {
-              window.desktopCapture!.cancel();
+              if (voice.hasPendingPickerSelection()) {
+                voice.notifySourceSelected(null);
+              } else {
+                window.desktopCapture!.cancel();
+              }
               setPickSources([]);
             }}
           />
