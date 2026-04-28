@@ -32,6 +32,12 @@ export default defineConfig({
       strategies: "injectManifest",
       injectManifest: {
         maximumFileSizeToCacheInBytes: 4000000,
+        // [VAD-IMPROVEMENT-#8] Exclude self-hosted Silero VAD assets from the
+        // service worker precache. The ORT wasm files (~25 MB jsep, ~12 MB
+        // baseline) blow past any sensible precache budget, and they're
+        // dynamically imported only on first voice-channel join — runtime
+        // fetch from /silero/ is fine without precaching.
+        globIgnores: ["**/silero/**"],
       },
       manifest: {
         name: "Stoat",
