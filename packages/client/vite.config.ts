@@ -31,7 +31,10 @@ export default defineConfig({
       filename: "serviceWorker.ts",
       strategies: "injectManifest",
       injectManifest: {
-        maximumFileSizeToCacheInBytes: 4000000,
+        // Bumped from 4_000_000 — the main index bundle has grown past the
+        // old limit. Set high enough to cover code growth without excluding
+        // genuinely large non-essential assets (Silero is excluded below).
+        maximumFileSizeToCacheInBytes: 8_000_000,
         // [VAD-IMPROVEMENT-#8] Exclude self-hosted Silero VAD assets from the
         // service worker precache. The ORT wasm files (~25 MB jsep, ~12 MB
         // baseline) blow past any sensible precache budget, and they're
