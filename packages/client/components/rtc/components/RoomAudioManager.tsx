@@ -1,5 +1,5 @@
 import { createEffect, createMemo } from "solid-js";
-import { AudioTrack, useTracks } from "solid-livekit-components";
+import { useTracks } from "solid-livekit-components";
 
 import { getTrackReferenceId, isLocal } from "@livekit/components-core";
 import { Key } from "@solid-primitives/keyed";
@@ -8,6 +8,7 @@ import { RemoteTrackPublication, Track } from "livekit-client";
 import { useState } from "@revolt/state";
 
 import { useVoice } from "../state";
+import { CompressedAudioTrack } from "./CompressedAudioTrack";
 
 export function RoomAudioManager() {
   const voice = useVoice();
@@ -56,9 +57,14 @@ export function RoomAudioManager() {
 
   return (
     <div style={{ display: "none" }}>
+      {/* [VAD-IMPROVEMENT-#9] CompressedAudioTrack replaces solid-livekit-components'
+          AudioTrack for receive-side normalization. Wrapping in <Key> by the stable
+          trackRefId ensures one component instance — and one AudioContext +
+          DynamicsCompressorNode — per remote track. onCleanup runs on participant
+          leave / track removal, tearing down the chain so nothing leaks. */}
       <Key each={filteredTracks()} by={(item) => getTrackReferenceId(item)}>
         {(track) => (
-          <AudioTrack
+          <CompressedAudioTrack
             trackRef={track()}
             volume={
               state.voice.outputVolume *
@@ -72,7 +78,7 @@ export function RoomAudioManager() {
                 : state.voice.getUserMuted(track().participant.identity)) ||
               voice.deafen()
             }
-            enableBoosting
+            outputDeviceId={state.voice.preferredAudioOutputDevice}
           />
         )}
       </Key>
