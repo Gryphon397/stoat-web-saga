@@ -202,11 +202,14 @@ class StoatInputGateProcessor extends AudioWorkletProcessor {
     // lower. Single-threshold gates chatter at the boundary on breath/HVAC.
     // To revert: set _CLOSE_RATIO to 1.0 (collapses to single threshold).
     this._CLOSE_RATIO = Math.pow(10, -10 / 20); // ≈ 0.3162
-    // [VAD-IMPROVEMENT-#8] Silero VAD AND-gate. When sileroEnabled=true, the
-    // worklet output also requires vadActive=true (set via main thread from
-    // @ricky0123/vad-web onSpeechStart/onSpeechEnd). When sileroEnabled=false,
-    // the worklet behaves as RMS-only.
-    // To revert: ignore vadActive entirely in the targetGain calc.
+    // [VAD-IMPROVEMENT-#8-fix] Silero is a HOLD-EXTENDER, not an AND-gate.
+    // Original AND-gate held output closed for ~150-300 ms while Silero
+    // confirmed speech, swallowing sentence onsets. New rule: RMS alone
+    // controls onset; when Silero confirms ongoing speech (vadActive=true)
+    // it refreshes the hold counter so the gate stays open through brief
+    // pauses. When Silero is inactive (or disabled), the gate decays
+    // naturally after HOLD_FRAMES — brief sneeze leakage is acceptable;
+    // clipping onsets is not. Original behavior superseded.
     this._sileroEnabled = false;
     this._vadActive = false;
     this.port.onmessage = (e) => {
@@ -231,17 +234,19 @@ class StoatInputGateProcessor extends AudioWorkletProcessor {
     for (let i = 0; i < detectorIn.length; i++) ss += detectorIn[i] * detectorIn[i];
     const rms = Math.sqrt(ss / detectorIn.length);
     // [VAD-IMPROVEMENT-#4] Dual-threshold hysteresis. RMS in [closeThresh,
-    // _threshold) is a dead-zone — hold counter does not change.
+    // _threshold) is a dead-zone — hold counter does not change unless
+    // Silero refreshes it (see #8-fix below).
     const closeThresh = this._threshold * this._CLOSE_RATIO;
     if (rms >= this._threshold) {
+      this._holdCounter = this._HOLD_FRAMES;
+    } else if (this._sileroEnabled && this._vadActive) {
+      // [VAD-IMPROVEMENT-#8-fix] Hold-extender: Silero keeps the gate open
+      // through speech pauses without ever blocking onset.
       this._holdCounter = this._HOLD_FRAMES;
     } else if (rms < closeThresh) {
       this._holdCounter = this._holdCounter > 0 ? this._holdCounter - 1 : 0;
     }
-    const rmsOpen = this._holdCounter > 0;
-    // [VAD-IMPROVEMENT-#8] Combine RMS gate with Silero veto (AND mode).
-    const sileroOk = !this._sileroEnabled || this._vadActive;
-    const targetGain = (rmsOpen && sileroOk) ? 1.0 : 0.0;
+    const targetGain = this._holdCounter > 0 ? 1.0 : 0.0;
     this._gateGain += targetGain > this._gateGain ? this._ATTACK : -this._RELEASE;
     this._gateGain = this._gateGain < 0.0 ? 0.0 : this._gateGain > 1.0 ? 1.0 : this._gateGain;
     // DF3 runs after the gate. Pure silence causes DF3 to adapt its noise model to
@@ -525,6 +530,12 @@ class Voice {
   // via dynamic import). null when disabled or not yet running.
   // Type kept loose because the package's MicVAD type isn't re-exported cleanly.
   #sileroVad: { destroy(): void; start?(): void; pause?(): void } | null = null;
+  // [VAD-IMPROVEMENT-#8-fix] In-flight start promise. Concurrent callers of
+  // #startSileroVad await the same instantiation instead of each spawning a
+  // MicVAD — the original `if (this.#sileroVad) return;` check raced across
+  // `await import` and `await MicVAD.new`, producing duplicate ONNX workers
+  // on the same default AudioContext that contended with DF3.
+  #sileroStartInFlight: Promise<void> | null = null;
   // Raw (pre-gate) mic track, kept for periodic auto-calibration
   #rawMicTrack: MediaStreamTrack | null = null;
   #calibrationInterval: ReturnType<typeof setInterval> | null = null;
@@ -851,7 +862,38 @@ class Voice {
     }
   }
 
-  async applyMicConstraints() {
+  // [VAD-IMPROVEMENT-#8-fix] Re-entry guard for applyMicConstraints.
+  // The createEffect that watches noiseSupression / noiseSupressionLevel /
+  // echoCancellation can fire several times in rapid succession (settings
+  // hydration on connect, slider drags). Each unguarded call rebuilt the
+  // input gate and re-armed Silero before the previous attach finished,
+  // stacking MicVAD instances on the audio thread. Pattern: last-write-wins
+  // coalescing — at most one constraints op runs at a time, and a single
+  // pending re-run is queued. Multiple calls during one in-flight op
+  // collapse into one trailing run with the latest settings.
+  #micConstraintsInFlight: Promise<void> | null = null;
+  #micConstraintsPending = false;
+
+  async applyMicConstraints(): Promise<void> {
+    if (this.#micConstraintsInFlight) {
+      this.#micConstraintsPending = true;
+      return this.#micConstraintsInFlight;
+    }
+    this.#micConstraintsInFlight = (async () => {
+      try {
+        await this.#runMicConstraints();
+        while (this.#micConstraintsPending) {
+          this.#micConstraintsPending = false;
+          await this.#runMicConstraints();
+        }
+      } finally {
+        this.#micConstraintsInFlight = null;
+      }
+    })();
+    return this.#micConstraintsInFlight;
+  }
+
+  async #runMicConstraints(): Promise<void> {
     const room = this.room();
     if (!room) return;
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
@@ -889,7 +931,6 @@ class Voice {
     } catch (e) {
       console.warn("[Voice] ❌ DF3 processor error:", e);
     }
-
   }
 
   disconnect() {
@@ -1448,36 +1489,64 @@ class Voice {
   // Assets (silero_vad_legacy.onnx, vad.worklet.bundle.min.js, ORT wasm) are
   // self-hosted under /silero/ — see scripts/copy-silero-assets.mjs which
   // mirrors them from node_modules on every pnpm install (postinstall).
-  async #startSileroVad(): Promise<void> {
-    if (this.#sileroVad) return;
-    if (!this.#rawMicTrack || !this.#inputGateNode) return;
-    try {
-      const { MicVAD } = await import("@ricky0123/vad-web");
-      const rawTrack = this.#rawMicTrack;
-      const vad = await MicVAD.new({
-        baseAssetPath: "/silero/",
-        onnxWASMBasePath: "/silero/",
-        getStream: async () => new MediaStream([rawTrack.clone()]),
-        onSpeechStart: () => {
-          this.#inputGateNode?.port.postMessage({ vadActive: true });
-        },
-        onSpeechEnd: () => {
-          this.#inputGateNode?.port.postMessage({ vadActive: false });
-        },
-      });
-      await vad.start();
-      this.#sileroVad = vad as unknown as { destroy(): void };
-      this.#inputGateNode.port.postMessage({ sileroEnabled: true });
-      console.log("[Voice] ✅ Silero VAD second-pass active (self-hosted assets)");
-    } catch (e) {
-      console.warn("[Voice] ❌ Silero VAD failed to load — falling back to RMS-only gate:", e);
-      this.#inputGateNode?.port.postMessage({ sileroEnabled: false });
-    }
+  // [VAD-IMPROVEMENT-#8-fix] Promise-locked: concurrent callers share a
+  // single in-flight init instead of each constructing a MicVAD.
+  #startSileroVad(): Promise<void> {
+    if (this.#sileroVad) return Promise.resolve();
+    if (this.#sileroStartInFlight) return this.#sileroStartInFlight;
+    const p = (async () => {
+      if (!this.#rawMicTrack || !this.#inputGateNode) return;
+      // Snapshot the gate node we're attaching to. If it gets replaced
+      // mid-init (e.g. applyMicConstraints rebuilt the gate), we discard
+      // the constructed MicVAD instead of bonding it to a stale gate.
+      const targetGateNode = this.#inputGateNode;
+      const targetRawTrack = this.#rawMicTrack;
+      try {
+        const { MicVAD } = await import("@ricky0123/vad-web");
+        if (this.#inputGateNode !== targetGateNode || this.#rawMicTrack !== targetRawTrack) {
+          return;
+        }
+        const vad = await MicVAD.new({
+          baseAssetPath: "/silero/",
+          onnxWASMBasePath: "/silero/",
+          getStream: async () => new MediaStream([targetRawTrack.clone()]),
+          onSpeechStart: () => {
+            this.#inputGateNode?.port.postMessage({ vadActive: true });
+          },
+          onSpeechEnd: () => {
+            this.#inputGateNode?.port.postMessage({ vadActive: false });
+          },
+        });
+        if (this.#inputGateNode !== targetGateNode || this.#rawMicTrack !== targetRawTrack) {
+          try { (vad as unknown as { destroy(): void }).destroy(); } catch { /* ignore */ }
+          return;
+        }
+        await vad.start();
+        this.#sileroVad = vad as unknown as { destroy(): void };
+        this.#inputGateNode.port.postMessage({ sileroEnabled: true });
+        console.log("[Voice] ✅ Silero VAD second-pass active (self-hosted assets)");
+      } catch (e) {
+        console.warn("[Voice] ❌ Silero VAD failed to load — falling back to RMS-only gate:", e);
+        this.#inputGateNode?.port.postMessage({ sileroEnabled: false });
+      }
+    })();
+    this.#sileroStartInFlight = p.finally(() => {
+      if (this.#sileroStartInFlight === p) this.#sileroStartInFlight = null;
+    });
+    return this.#sileroStartInFlight;
   }
 
   // [VAD-IMPROVEMENT-#8] Stop and tear down Silero VAD. Idempotent.
+  // [VAD-IMPROVEMENT-#8-fix] Awaits any in-flight start so we never leak a
+  // MicVAD that finishes initializing after teardown.
   async #stopSileroVad(): Promise<void> {
-    if (!this.#sileroVad) return;
+    if (this.#sileroStartInFlight) {
+      try { await this.#sileroStartInFlight; } catch { /* ignore */ }
+    }
+    if (!this.#sileroVad) {
+      this.#inputGateNode?.port.postMessage({ sileroEnabled: false, vadActive: false });
+      return;
+    }
     try { this.#sileroVad.destroy(); } catch { /* ignore */ }
     this.#sileroVad = null;
     this.#inputGateNode?.port.postMessage({ sileroEnabled: false, vadActive: false });
