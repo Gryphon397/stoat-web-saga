@@ -21,13 +21,35 @@ export function Titlebar() {
   const [isMaximised, setIsMaximised] = createSignal(
     window.native ? window.desktopConfig.get().windowState.isMaximised : false,
   );
+  const [downloadProgress, setDownloadProgress] = createSignal<number | null>(null);
+  const [updateAvailable, setUpdateAvailable] = createSignal(false);
   const { lifecycle } = useClientLifecycle();
 
   onMount(() => {
     if (window.native?.onMaximiseChanged) {
       window.native.onMaximiseChanged((maximised) => setIsMaximised(maximised));
     }
+    window.native?.onUpdateProgress?.((percent) => setDownloadProgress(percent));
+    window.native?.onUpdateAvailable?.(() => {
+      setDownloadProgress(null);
+      setUpdateAvailable(true);
+    });
+    // Pull current state. webContents.send is fire-and-forget, so events
+    // that fired before this listener was registered (or before a dev-toggle
+    // reload) are lost without this seed.
+    window.native?.getUpdateStatus?.().then((s) => {
+      if (s.downloaded) {
+        setDownloadProgress(null);
+        setUpdateAvailable(true);
+      } else if (s.progress !== null) {
+        setDownloadProgress(s.progress);
+      }
+    });
   });
+
+  // Gradient stop position: 0% = fully green, 100% = fully gray (unfilled)
+  const updateFillStop = () =>
+    updateAvailable() ? 0 : (100 - (downloadProgress() ?? 0));
 
   function isDisconnected() {
     return [
@@ -128,6 +150,27 @@ export function Titlebar() {
               </Show>
             </DragHandle>
             <Show when={window.native}>
+              <Show when={downloadProgress() !== null || updateAvailable()}>
+                <Action
+                  onClick={() => updateAvailable() && window.native?.installUpdate?.()}
+                  style={{ cursor: updateAvailable() ? "pointer" : "default" }}
+                  title={
+                    updateAvailable()
+                      ? "Update ready — click to restart and install"
+                      : `Downloading update... ${downloadProgress()}%`
+                  }
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" style={{ display: "block" }}>
+                    <defs>
+                      <linearGradient id="dlGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset={`${updateFillStop()}%`} stop-color="var(--md-sys-color-outline)" stop-opacity="0.5" />
+                        <stop offset={`${updateFillStop()}%`} stop-color="#3ba55c" />
+                      </linearGradient>
+                    </defs>
+                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 19v2h14v-2H5z" fill="url(#dlGrad)" />
+                  </svg>
+                </Action>
+              </Show>
               <Action onClick={window.native.minimise}>
                 <Ripple />
                 <MdMinimize {...symbolSize(20)} />

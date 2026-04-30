@@ -32,7 +32,21 @@ declare global {
       close(): void;
       onUpdateProgress(callback: (percent: number) => void): void;
       onUpdateAvailable(callback: () => void): void;
+      getUpdateStatus?(): Promise<{ progress: number | null; downloaded: boolean }>;
       installUpdate(): void;
+
+      // [VOICE-DEBUG-CAPTURE] Renderer bridge for the dev-only outgoing
+      // voice pipeline capture. Present in stoat-desktop-saga ≥ 1.5.10;
+      // undefined in web browser runs.
+      debugCapture?: {
+        pickDir(): Promise<{ canceled: boolean; path: string | null }>;
+        writeBundle(payload: {
+          parentDir: string;
+          subfolderName: string;
+          files: { name: string; buffer: ArrayBuffer }[];
+          metadata: Record<string, unknown>;
+        }): Promise<{ path: string }>;
+      };
     };
 
     desktopConfig: {
