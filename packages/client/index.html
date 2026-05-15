@@ -14,6 +14,13 @@
       href="./public/assets/web/icon.ico"
     />
     <title>Stoat</title>
+    <script>
+      // Runtime flag for the dev-only voice debug capture UI. Replaced by
+      // docker/inject.js at container start; left as the literal placeholder
+      // when serving via vite dev (which is fine — debugCapture.ts also
+      // returns true under import.meta.env.DEV).
+      window.__STOAT_DEBUG_CAPTURE__ = "__VITE_STOAT_DEBUG_CAPTURE__";
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

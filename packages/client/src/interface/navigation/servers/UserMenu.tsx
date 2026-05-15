@@ -32,6 +32,7 @@ import MdDelete from "@material-design-icons/svg/outlined/delete.svg?component-s
 import MdEditNote from "@material-design-icons/svg/outlined/edit_note.svg?component-solid";
 import MdInfo from "@material-design-icons/svg/outlined/info.svg?component-solid";
 import MdNotificationsOff from "@material-design-icons/svg/outlined/notifications_off.svg?component-solid";
+import MdSchedule from "@material-design-icons/svg/outlined/schedule.svg?component-solid";
 
 interface Props {
   anchor: Accessor<HTMLDivElement | undefined>;
@@ -212,7 +213,10 @@ export function UserMenu(props: Props) {
               <ContextMenuDivider />
 
               <Show
-                when={user()?.status?.text}
+                when={
+                  user()?.status?.text &&
+                  !user()?.status?.text?.startsWith("__avail__")
+                }
                 fallback={
                   <ContextMenuButton
                     icon={MdEditNote}
@@ -240,6 +244,38 @@ export function UserMenu(props: Props) {
                   onClick={() => user()?.edit({ remove: ["StatusText"] })}
                 >
                   <Trans>Clear status</Trans>
+                </ContextMenuButton>
+              </Show>
+
+              <Show
+                when={user()?.status?.text?.startsWith("__avail__")}
+                fallback={
+                  <ContextMenuButton
+                    icon={MdSchedule}
+                    onClick={() =>
+                      openModal({ type: "availability", client: client() })
+                    }
+                  >
+                    Set availability...
+                  </ContextMenuButton>
+                }
+              >
+                <ContextMenuButton
+                  icon={MdSchedule}
+                  onClick={() =>
+                    openModal({ type: "availability", client: client() })
+                  }
+                  _titleCase={false}
+                >
+                  <TruncatedStatusText>
+                    {user()?.statusMessage()}
+                  </TruncatedStatusText>
+                </ContextMenuButton>
+                <ContextMenuButton
+                  icon={MdDelete}
+                  onClick={() => user()?.edit({ remove: ["StatusText"] })}
+                >
+                  Clear availability
                 </ContextMenuButton>
               </Show>
 

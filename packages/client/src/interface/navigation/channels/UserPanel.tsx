@@ -46,7 +46,7 @@ export function UserPanel() {
             {user()?.displayName}
           </OverflowingText>
           <Show
-            when={user()?.status?.text}
+            when={user()?.statusMessage()}
             fallback={
               <OverflowingText class={typography({ class: "_status" })}>
                 {user()?.presence}
@@ -54,7 +54,7 @@ export function UserPanel() {
             }
           >
             <OverflowingText class={typography({ class: "_status" })}>
-              {user()!.status!.text}
+              {user()!.statusMessage()}
             </OverflowingText>
           </Show>
         </UserInfo>

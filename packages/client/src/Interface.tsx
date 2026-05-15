@@ -1,4 +1,4 @@
-import { JSX, Match, Switch, createEffect } from "solid-js";
+import { JSX, Match, Switch, createEffect, onCleanup } from "solid-js";
 
 import { Server } from "stoat.js";
 import { styled } from "styled-system/jsx";
@@ -49,6 +49,23 @@ const Interface = (props: { children: JSX.Element }) => {
       state.layout.setNextPath(pathname);
       console.debug("WAITING... currently", lifecycle.state());
     }
+  });
+
+  createEffect(() => {
+    if (!isLoggedIn()) return;
+    function clearExpiredAvailability() {
+      const user = client()?.user;
+      const text = user?.status?.text;
+      if (text?.startsWith("__avail__")) {
+        const ts = parseInt(text.slice(9), 10);
+        if (!isNaN(ts) && ts < Date.now()) {
+          user!.edit({ remove: ["StatusText"] });
+        }
+      }
+    }
+    clearExpiredAvailability();
+    const id = setInterval(clearExpiredAvailability, 60_000);
+    onCleanup(() => clearInterval(id));
   });
 
   function isDisconnected() {

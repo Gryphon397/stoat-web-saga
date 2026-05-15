@@ -76,11 +76,6 @@ export function RenderAnchor(
     if (
       [
         location.origin,
-        // legacy
-        "https://app.revolt.chat",
-        "https://revolt.chat",
-        // new
-        "https://stoat.chat",
       ].includes(url.origin)
     ) {
       const client = useClient();

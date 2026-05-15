@@ -105,6 +105,10 @@ export type Modals =
       callback: (id: string) => void;
     }
   | {
+      type: "availability";
+      client: Client;
+    }
+  | {
       type: "custom_status";
       client: Client;
     }

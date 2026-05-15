@@ -1,4 +1,4 @@
-import { Accessor, For, JSX, Show, createMemo, createSignal, onMount } from "solid-js";
+import { Accessor, For, JSX, Show, createMemo, createSignal } from "solid-js";
 
 import { Trans } from "@lingui-solid/solid/macro";
 import { Channel, Server } from "stoat.js";
@@ -6,17 +6,16 @@ import { cva } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
 import { useClient } from "@revolt/client";
-import { CONFIGURATION } from "@revolt/common";
 import { KeybindAction, createKeybind } from "@revolt/keybinds";
+import { useModals } from "@revolt/modal";
 import { useNavigate } from "@revolt/routing";
 import { useState } from "@revolt/state";
 import { Avatar, Column, Text, Time, Unreads } from "@revolt/ui";
 
 import MdAdd from "@material-design-icons/svg/filled/add.svg?component-solid";
-import MdExplore from "@material-design-icons/svg/filled/explore.svg?component-solid";
 import MdHome from "@material-design-icons/svg/filled/home.svg?component-solid";
-import MdDownload from "@material-design-icons/svg/filled/download.svg?component-solid";
-
+import MdBugReport from "@material-design-icons/svg/outlined/bug_report.svg?component-solid";
+import MdRefresh from "@material-design-icons/svg/outlined/refresh.svg?component-solid";
 import { Tooltip } from "../../../../components/ui/components/floating";
 import { Draggable } from "../../../../components/ui/components/utils/Draggable";
 
@@ -60,6 +59,7 @@ export const ServerList = (props: Props) => {
   const state = useState();
   const client = useClient();
   const navigate = useNavigate();
+  const { openModal } = useModals();
   const navigateServer = (byOffset: number) => {
     const serverId = props.selectedServer();
     if (serverId == null && props.orderedServers.length) {
@@ -101,16 +101,6 @@ export const ServerList = (props: Props) => {
       .length;
   });
 
-  // Desktop app update indicator
-  const [downloadProgress, setDownloadProgress] = createSignal<number | null>(null);
-  const [updateAvailable, setUpdateAvailable] = createSignal(false);
-  onMount(() => {
-    window.native?.onUpdateProgress?.((percent) => setDownloadProgress(percent));
-    window.native?.onUpdateAvailable?.(() => {
-      setDownloadProgress(null);
-      setUpdateAvailable(true);
-    });
-  });
 
   return (
     <ServerListBase>
@@ -270,46 +260,36 @@ export const ServerList = (props: Props) => {
             <Avatar size={42} fallback={<MdAdd />} />
           </a>
         </Tooltip>
-        <Show when={CONFIGURATION.IS_STOAT}>
-          <Tooltip placement="right" content={"Find new servers to join"}>
-            <a
-              href={state.layout.getLastActiveDiscoverPath()}
-              class={entryContainer()}
-            >
-              <Avatar size={42} fallback={<MdExplore />} />
-            </a>
-          </Tooltip>
-        </Show>
+        <Tooltip placement="right" content={"Report a bug or request a feature"}>
+          <a
+            class={entryContainer()}
+            onClick={() =>
+              openModal({ type: "settings", config: "user", context: { page: "feedback" } })
+            }
+          >
+            <Avatar size={42} fallback={<MdBugReport />} />
+          </a>
+        </Tooltip>
+        <Tooltip placement="right" content={"Clear cache & reload"}>
+          <a
+            class={entryContainer()}
+            onClick={async () => {
+              try {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map((r) => r.unregister()));
+              } catch {
+                /* ignore — fall through to reload */
+              }
+              window.location.reload();
+            }}
+          >
+            <Avatar size={42} fallback={<MdRefresh />} />
+          </a>
+        </Tooltip>
       </div>
       <Shadow>
         <div />
       </Shadow>
-      <Show when={downloadProgress() !== null}>
-        <Tooltip placement="right" content={`Downloading update... ${downloadProgress()}%`}>
-          <div class={entryContainer()} style={{ cursor: "default" }}>
-            <svg width="36" height="36" viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
-              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(59,165,92,0.25)" stroke-width="3" />
-              <circle
-                cx="18" cy="18" r="15" fill="none"
-                stroke="rgba(59,165,92,0.85)" stroke-width="3" stroke-linecap="round"
-                stroke-dasharray={`${2 * Math.PI * 15}`}
-                stroke-dashoffset={`${2 * Math.PI * 15 * (1 - (downloadProgress() ?? 0) / 100)}`}
-              />
-            </svg>
-          </div>
-        </Tooltip>
-      </Show>
-      <Show when={updateAvailable()}>
-        <Tooltip placement="right" content="Update ready — click to restart and install">
-          <a
-            class={entryContainer()}
-            style={{ fill: "#3ba55c" }}
-            onClick={() => window.native?.installUpdate?.()}
-          >
-            <Avatar size={42} fallback={<MdDownload />} interactive />
-          </a>
-        </Tooltip>
-      </Show>
     </ServerListBase>
   );
 };

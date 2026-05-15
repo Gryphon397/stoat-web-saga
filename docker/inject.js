@@ -24,6 +24,7 @@ const REPLACEMENTS = {
   __VITE_CFG_MAX_FILE_SIZE__: process.env.VITE_CFG_MAX_FILE_SIZE || "",
   __VITE_PLEX_PROXY_URL__: process.env.VITE_PLEX_PROXY_URL || "",
   __VITE_GIFBOX_URL__: process.env.VITE_GIFBOX_URL || "",
+  __VITE_STOAT_DEBUG_CAPTURE__: process.env.VITE_STOAT_DEBUG_CAPTURE || "",
 };
 
 console.log("Preparing injected build...");

@@ -14,7 +14,6 @@ import {
   iconSize,
 } from "@revolt/ui";
 
-import MdLibraryBooks from "@material-design-icons/svg/outlined/library_books.svg?component-solid";
 import MdSmartToy from "@material-design-icons/svg/outlined/smart_toy.svg?component-solid";
 
 import { useSettingsNavigation } from "../../Settings";
@@ -60,16 +59,6 @@ function CreateBot() {
         }
       >
         <Trans>Create Bot</Trans>
-      </CategoryButton>
-      <CategoryButton
-        action="external"
-        icon={<MdLibraryBooks {...iconSize(22)} />}
-        onClick={() => window.open("https://developers.stoat.chat", "_blank")}
-        description={
-          <Trans>Learn more about how to create bots on Stoat.</Trans>
-        }
-      >
-        <Trans>Developer Documentation</Trans>
       </CategoryButton>
     </CategoryButtonGroup>
   );

@@ -57,15 +57,6 @@ export function CreateServerModal(
     >
       <form onSubmit={submit}>
         <Column>
-          <Text>
-            <Trans>
-              By creating this server, you agree to the{" "}
-              <a href="https://stoat.chat/aup" target="_blank" rel="noreferrer">
-                <Trans>Acceptable Use Policy</Trans>
-              </a>
-              .
-            </Trans>
-          </Text>
           <Form2.TextField
             minlength={1}
             maxlength={32}
