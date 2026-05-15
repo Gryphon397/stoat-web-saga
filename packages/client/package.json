@@ -96,7 +96,7 @@
     "color-rgba": "^3.0.0",
     "comma-separated-tokens": "^2.0.3",
     "dayjs": "^1.11.13",
-    "deepfilternet3-noise-filter": "^1.1.4",
+    "deepfilternet3-noise-filter": "1.2.1",
     "detect-browser": "^5.3.0",
     "emoji-regex": "^10.4.0",
     "fast-deep-equal": "^3.1.3",

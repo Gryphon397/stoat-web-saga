@@ -18,15 +18,73 @@ import {
 } from "solid-livekit-components";
 
 import { AudioCaptureOptions, ConnectionQuality, LocalAudioTrack, LocalTrackPublication, LocalVideoTrack, Participant, RemoteAudioTrack, Room, ScreenSharePresets, Track, TrackPublication, VideoPresets, VideoResolution } from "livekit-client";
-import { DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
+import { DeepFilterNet3Core, DeepFilterNoiseFilterProcessor } from "deepfilternet3-noise-filter";
 import { voiceNotifications } from "./VoiceNotifications";
 import { ModalController, useModals } from "@revolt/modal";
+// [VOICE-DEBUG-CAPTURE] dev-only outgoing pipeline capture
+import {
+  CaptureMetadata,
+  DebugCaptureSession,
+  DebugCaptureState,
+  encodeWavMono16,
+  ensureCaptureRecorderRegistered,
+  formatBundleTimestamp,
+} from "./debugCapture";
+// [Voice/H2] dev-only A/B harness for blind comparisons
+import {
+  ABHarnessClip,
+  ABHarnessLabeling,
+  ABHarnessPass,
+  ABHarnessSession,
+  ABHarnessState,
+  cryptoCoinFlip,
+} from "./abHarness";
+import { K1, K2, measureLoudness } from "./loudness";
+import { BUILD as STOAT_BUILD } from "../../src/build";
 
 const debugLog = (prefix: string, ...args: unknown[]) => {
   if (import.meta.env.DEV) {
     console.log(`[${prefix}]`, ...args);
   }
 };
+
+// [Voice/J4] Hidden kill-switch for the mic-warmup mute fix. Default: fix on.
+// Disable (revert to legacy behavior) by either:
+//   • setting `window.__STOAT_DISABLE_MIC_WARMUP_MUTE__ = "1"` before app load, OR
+//   • running `localStorage.setItem("stoat.disableMicWarmupMute", "1")` in DevTools, then reload.
+// Not surfaced in settings UI by design — if toggling becomes routine, the fix
+// needs revisiting, not the toggle made more prominent.
+function isMicWarmupMuteDisabled(): boolean {
+  const env = (globalThis as { __STOAT_DISABLE_MIC_WARMUP_MUTE__?: string })
+    .__STOAT_DISABLE_MIC_WARMUP_MUTE__;
+  if (env === "1") return true;
+  return isStoatFixDisabled("disableMicWarmupMute");
+}
+
+// [Voice/J5/J6/J7] Shared kill-switch reader for the 2026-05-11 state-machine
+// fixes. Default for every flag: fix on. To revert any individual fix to legacy
+// behavior, set the matching key in DevTools and reload:
+//   localStorage.setItem("stoat.disableDeafenAutoMute", "1");      // J5
+//   localStorage.setItem("stoat.disablePttMidCallMute", "1");      // J6
+//   localStorage.setItem("stoat.disableMidCallDeviceChange", "1"); // J7
+//   localStorage.setItem("stoat.disableA2Architecture", "1");      // A2
+// Not surfaced in settings UI; if toggling becomes routine the fix needs
+// revisiting, not the toggle made more prominent.
+function isStoatFixDisabled(key: string): boolean {
+  try {
+    if (typeof localStorage !== "undefined" &&
+        localStorage.getItem(`stoat.${key}`) === "1") return true;
+  } catch {
+    /* sandbox / privacy mode — fall through */
+  }
+  return false;
+}
+
+// [Voice/A2] Print which audio pipeline is active at module load. Cheap log
+// so the dev test rig can confirm which architecture is being measured.
+console.log(
+  `[Voice/A2] ${isStoatFixDisabled("disableA2Architecture") ? "disabled via kill switch" : "active"}`,
+);
 
 // Type declarations for Stoat Desktop screenshare picker API
 declare global {
@@ -109,7 +167,6 @@ declare global {
     };
   }
 }
-
 
 import { Channel } from "stoat.js";
 
@@ -212,10 +269,17 @@ class StoatInputGateProcessor extends AudioWorkletProcessor {
     // clipping onsets is not. Original behavior superseded.
     this._sileroEnabled = false;
     this._vadActive = false;
+    // [Voice/A2] When true, the gate outputs true silence during closed
+    // periods. Set by Voice when the A2 architecture is active — DF3 then
+    // runs upstream of the gate, so the gate no longer needs to keep DF3
+    // warm via a bleed floor. Default false preserves legacy behavior
+    // when the kill switch is set.
+    this._disableBleed = false;
     this.port.onmessage = (e) => {
       if (typeof e.data.threshold === 'number') this._threshold = e.data.threshold;
       if (typeof e.data.sileroEnabled === 'boolean') this._sileroEnabled = e.data.sileroEnabled;
       if (typeof e.data.vadActive === 'boolean') this._vadActive = e.data.vadActive;
+      if (typeof e.data.disableBleed === 'boolean') this._disableBleed = e.data.disableBleed;
     };
   }
   process(inputs, outputs) {
@@ -249,10 +313,20 @@ class StoatInputGateProcessor extends AudioWorkletProcessor {
     const targetGain = this._holdCounter > 0 ? 1.0 : 0.0;
     this._gateGain += targetGain > this._gateGain ? this._ATTACK : -this._RELEASE;
     this._gateGain = this._gateGain < 0.0 ? 0.0 : this._gateGain > 1.0 ? 1.0 : this._gateGain;
-    // DF3 runs after the gate. Pure silence causes DF3 to adapt its noise model to
-    // zero-signal; on the next speech onset it briefly treats voice as noise (gargling).
-    // A -54 dBFS bleed (~0.002 linear) keeps DF3 "warm" without transmitting audible audio.
-    const g = this._gateGain > 0.002 ? this._gateGain : 0.002;
+    // [Voice/D4] In the legacy pipeline, DF3 runs AFTER the gate as a
+    // LiveKit track processor. Pure silence causes DF3 to adapt its noise
+    // model to zero-signal; on the next speech onset it briefly treats
+    // voice as noise (gargling — 31 dB attenuation in first 50 ms,
+    // ramping to ~5 dB over 250 ms with the prior -54 dBFS floor). A
+    // -45 dBFS bleed (~0.0056 linear) keeps DF3 acclimated so the onset
+    // ramp is shallower. Audible up close but acceptable.
+    //
+    // [Voice/A2] Under the A2 architecture DF3 runs UPSTREAM of the gate
+    // as a Web Audio node, so the gate has nothing to keep warm. Voice
+    // sends { disableBleed: true } in that case and the closed-gate
+    // output is true silence.
+    const bleedFloor = this._disableBleed ? 0.0 : 0.0056;
+    const g = this._gateGain > bleedFloor ? this._gateGain : bleedFloor;
     for (let i = 0; i < audioIn.length; i++) {
       outCh[i] = audioIn[i] * g;
     }
@@ -269,6 +343,318 @@ function getInputGateWorkletUrl(): string {
     );
   }
   return inputGateWorkletUrl;
+}
+
+// [STOAT-AGC] Custom AGC AudioWorklet — sliding-window RMS envelope, holds
+// gain when input is below silentThreshold (no noise pumping during gate-
+// closed silences), 5 ms lookahead so the attack phase precedes the loud
+// sample. Sits between the input gate and the publish destination so the
+// gain control happens BEFORE DF3 sees the signal.
+//
+// Live config via port.postMessage:
+//   { enabled: bool, targetDbfs, maxGainDb, minGainDb,
+//     silentThresholdDbfs, attackMs, releaseMs }
+const agcWorkletCode = `
+class StoatAgcProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._enabled = false;
+    this._targetLin = Math.pow(10, -18 / 20);
+    this._maxGain = Math.pow(10, 18 / 20);
+    this._minGain = Math.pow(10, -12 / 20);
+    this._silentThresholdLin = Math.pow(10, -50 / 20);
+    this._currentGain = 1.0;
+    this._rmsSquared = 0.0;
+
+    const sr = sampleRate;
+    this._rmsAlpha = 1 - Math.exp(-1 / (0.150 * sr));
+    this._attackAlpha = 1 - Math.exp(-1 / (0.010 * sr));
+    this._releaseAlpha = 1 - Math.exp(-1 / (0.200 * sr));
+
+    this._lookaheadSize = Math.max(1, Math.round(0.005 * sr));
+    this._delayBuf = new Float32Array(this._lookaheadSize);
+    this._delayPos = 0;
+
+    this.port.onmessage = (e) => {
+      const d = e.data || {};
+      if (typeof d.enabled === 'boolean') this._enabled = d.enabled;
+      if (typeof d.targetDbfs === 'number') this._targetLin = Math.pow(10, d.targetDbfs / 20);
+      if (typeof d.maxGainDb === 'number') this._maxGain = Math.pow(10, d.maxGainDb / 20);
+      if (typeof d.minGainDb === 'number') this._minGain = Math.pow(10, d.minGainDb / 20);
+      if (typeof d.silentThresholdDbfs === 'number') {
+        this._silentThresholdLin = Math.pow(10, d.silentThresholdDbfs / 20);
+      }
+      if (typeof d.attackMs === 'number' && d.attackMs > 0) {
+        this._attackAlpha = 1 - Math.exp(-1 / ((d.attackMs / 1000) * sampleRate));
+      }
+      if (typeof d.releaseMs === 'number' && d.releaseMs > 0) {
+        this._releaseAlpha = 1 - Math.exp(-1 / ((d.releaseMs / 1000) * sampleRate));
+      }
+    };
+  }
+
+  process(inputs, outputs) {
+    const inCh = inputs[0] && inputs[0][0];
+    const outCh = outputs[0] && outputs[0][0];
+    if (!inCh || !outCh) return true;
+
+    if (!this._enabled) {
+      // Bypass — but route through the same delay line so toggling on/off
+      // doesn't introduce a 5 ms phase pop in the middle of a phrase.
+      for (let i = 0; i < inCh.length; i++) {
+        const delayed = this._delayBuf[this._delayPos];
+        this._delayBuf[this._delayPos] = inCh[i];
+        this._delayPos = (this._delayPos + 1) % this._lookaheadSize;
+        outCh[i] = delayed;
+      }
+      return true;
+    }
+
+    for (let i = 0; i < inCh.length; i++) {
+      const x = inCh[i];
+
+      // EMA of squared sample → RMS estimate over ~150 ms
+      this._rmsSquared += this._rmsAlpha * (x * x - this._rmsSquared);
+      const rms = Math.sqrt(this._rmsSquared);
+
+      let desired;
+      if (rms < this._silentThresholdLin) {
+        // Hold during silence — prevents the noise-floor pumping that
+        // makes Chrome's AGC sound "breathy" between phrases.
+        desired = this._currentGain;
+      } else {
+        desired = this._targetLin / rms;
+        if (desired > this._maxGain) desired = this._maxGain;
+        else if (desired < this._minGain) desired = this._minGain;
+      }
+
+      // Attack = fast (gain coming down to catch a peak),
+      // Release = slow (gain coming up to fill quiet speech).
+      const alpha = desired < this._currentGain ? this._attackAlpha : this._releaseAlpha;
+      this._currentGain += alpha * (desired - this._currentGain);
+
+      // Lookahead delay line — gain decided from the new sample, applied
+      // to the 5 ms-older sample at the read head.
+      const delayed = this._delayBuf[this._delayPos];
+      this._delayBuf[this._delayPos] = x;
+      this._delayPos = (this._delayPos + 1) % this._lookaheadSize;
+
+      outCh[i] = delayed * this._currentGain;
+    }
+    return true;
+  }
+}
+registerProcessor('stoat-agc', StoatAgcProcessor);
+`;
+let agcWorkletUrl: string | null = null;
+function getAgcWorkletUrl(): string {
+  if (!agcWorkletUrl) {
+    agcWorkletUrl = URL.createObjectURL(
+      new Blob([agcWorkletCode], { type: "application/javascript" }),
+    );
+  }
+  return agcWorkletUrl;
+}
+
+// [Voice/B4] K-weighted leveler + sample-peak limiter. Replaces the
+// envelope-follower AGC above for users opting in via useStoatAgc=true
+// when the B4 kill switch is not set.
+//
+// Detector: BS.1770-4 K-weighting (high-shelf + RLB high-pass) over a
+// 400 ms sliding window of squared samples. The window approximates
+// short-term loudness (LUFS-S). Target -20 LUFS-S.
+//
+// Dynamics:
+//   • Attack 50 ms — smoother than transient-grabbing AGC.
+//   • Release 1500 ms — slow recovery, avoids pumping between phrases.
+//   • Gain bounded to [-6, +12] dB from unity.
+//   • Frozen during silence (input RMS below silentThresholdLin) so the
+//     leveler does not pump up room tone between utterances. Under A2
+//     "silence" arrives as gate-closed true zero; the freeze branch
+//     just keeps gain at its last value until speech resumes.
+//
+// Peak limiter: sample-peak (not true-peak — see note below) at -1 dBFS,
+// applied after the leveler so transients that pushed the leveler over
+// target loudness are tamed before publish. 2 ms attack / 100 ms release.
+//
+// True-peak vs sample-peak: BS.1770-4 true-peak requires 4× oversampled
+// detection (see loudness.ts computeTruePeakDbfs). In a per-sample
+// worklet that adds Catmull-Rom evaluation and a small forward-peek
+// buffer — feasible but adds complexity. Sample-peak is within ~0.3-1 dB
+// of true-peak for voice content; can be upgraded if downstream
+// measurement shows ISP excursions above 0 dBFS.
+//
+// Diagnostic gain reporting: posts { type:'gain', levelerDb, limiterDb }
+// to the main thread every ~107 ms (40 process() calls at 128 frames).
+// Main caches the latest values for window.stoatDiag.
+const levelerWorkletCode = `
+const K1_B0 = ${K1.b0};
+const K1_B1 = ${K1.b1};
+const K1_B2 = ${K1.b2};
+const K1_A1 = ${K1.a1};
+const K1_A2 = ${K1.a2};
+const K2_B0 = ${K2.b0};
+const K2_B1 = ${K2.b1};
+const K2_B2 = ${K2.b2};
+const K2_A1 = ${K2.a1};
+const K2_A2 = ${K2.a2};
+
+class StoatLevelerProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._enabled = false;
+    // -20 LUFS-S target — commercial voice-chat reference. Hardcoded;
+    // see CLAUDE.md for the rationale.
+    this._targetLin = Math.pow(10, -20 / 20);
+    this._maxGain = Math.pow(10, 12 / 20);
+    this._minGain = Math.pow(10, -6 / 20);
+    this._silentThresholdLin = Math.pow(10, -50 / 20);
+    this._currentGain = 1.0;
+
+    const sr = sampleRate;
+    // Single-pole smoother time constants.
+    this._attackAlpha = 1 - Math.exp(-1 / (0.050 * sr));   // 50 ms
+    this._releaseAlpha = 1 - Math.exp(-1 / (1.500 * sr));  // 1500 ms
+
+    // K-weighting filter state.
+    this._k1x1 = 0; this._k1x2 = 0; this._k1y1 = 0; this._k1y2 = 0;
+    this._k2x1 = 0; this._k2x2 = 0; this._k2y1 = 0; this._k2y2 = 0;
+
+    // 400 ms sliding window of K-weighted squared samples — approximates
+    // BS.1770 short-term loudness. The window size is the LUFS-S block
+    // length per EBU R128 (3 s) shortened to 400 ms because the leveler
+    // needs to react in conversational time. 400 ms is the BS.1770 block
+    // length used for momentary loudness.
+    this._stWindowSize = Math.max(1, Math.round(0.400 * sr));
+    this._stEnergyBuf = new Float32Array(this._stWindowSize);
+    this._stPos = 0;
+    this._stSum = 0;
+
+    // Peak limiter — sample-peak at -1 dBFS.
+    this._peakThreshLin = Math.pow(10, -1 / 20);
+    this._peakGain = 1.0;
+    this._peakAttackAlpha = 1 - Math.exp(-1 / (0.002 * sr));  // 2 ms
+    this._peakReleaseAlpha = 1 - Math.exp(-1 / (0.100 * sr)); // 100 ms
+
+    // 5 ms lookahead, same as the legacy AGC, so the toggle off/on path
+    // is byte-equivalent in delay terms (no phase pop on swap).
+    this._lookaheadSize = Math.max(1, Math.round(0.005 * sr));
+    this._delayBuf = new Float32Array(this._lookaheadSize);
+    this._delayPos = 0;
+
+    // Heartbeat counter for diagnostic gain posts.
+    this._gainPostCounter = 0;
+    this._gainPostInterval = 40; // ~107 ms at 128-sample render quanta
+
+    this.port.onmessage = (e) => {
+      const d = e.data || {};
+      if (typeof d.enabled === 'boolean') this._enabled = d.enabled;
+      if (typeof d.silentThresholdDbfs === 'number') {
+        this._silentThresholdLin = Math.pow(10, d.silentThresholdDbfs / 20);
+      }
+    };
+  }
+
+  process(inputs, outputs) {
+    const inCh = inputs[0] && inputs[0][0];
+    const outCh = outputs[0] && outputs[0][0];
+    if (!inCh || !outCh) return true;
+
+    if (!this._enabled) {
+      // Bypass — route samples through the same delay line so toggling
+      // on/off doesn't introduce a 5 ms phase pop.
+      for (let i = 0; i < inCh.length; i++) {
+        const delayed = this._delayBuf[this._delayPos];
+        this._delayBuf[this._delayPos] = inCh[i];
+        this._delayPos = (this._delayPos + 1) % this._lookaheadSize;
+        outCh[i] = delayed;
+      }
+      return true;
+    }
+
+    for (let i = 0; i < inCh.length; i++) {
+      const x = inCh[i];
+
+      // K-weighting filter: stage 1 (high-shelf) → stage 2 (RLB HP).
+      const k1y0 = K1_B0 * x + K1_B1 * this._k1x1 + K1_B2 * this._k1x2
+                 - K1_A1 * this._k1y1 - K1_A2 * this._k1y2;
+      this._k1x2 = this._k1x1; this._k1x1 = x;
+      this._k1y2 = this._k1y1; this._k1y1 = k1y0;
+      const k2y0 = K2_B0 * k1y0 + K2_B1 * this._k2x1 + K2_B2 * this._k2x2
+                 - K2_A1 * this._k2y1 - K2_A2 * this._k2y2;
+      this._k2x2 = this._k2x1; this._k2x1 = k1y0;
+      this._k2y2 = this._k2y1; this._k2y1 = k2y0;
+
+      // Sliding-window mean square on K-weighted samples.
+      const newSq = k2y0 * k2y0;
+      const oldSq = this._stEnergyBuf[this._stPos];
+      this._stSum += newSq - oldSq;
+      this._stEnergyBuf[this._stPos] = newSq;
+      this._stPos = (this._stPos + 1) % this._stWindowSize;
+      // Guard against tiny negative drift from float accumulation.
+      const meanSq = this._stSum > 0 ? this._stSum / this._stWindowSize : 0;
+      const stRms = Math.sqrt(meanSq);
+
+      // Compute desired gain. Freeze during silence so the leveler
+      // does not chase noise during gate-closed periods.
+      let desired;
+      if (stRms < this._silentThresholdLin) {
+        desired = this._currentGain;
+      } else {
+        desired = this._targetLin / stRms;
+        if (desired > this._maxGain) desired = this._maxGain;
+        else if (desired < this._minGain) desired = this._minGain;
+      }
+
+      // Attack vs release direction. Attack = gain coming DOWN (catching
+      // a transient), release = gain coming UP (filling quiet speech).
+      const alpha = desired < this._currentGain ? this._attackAlpha : this._releaseAlpha;
+      this._currentGain += alpha * (desired - this._currentGain);
+
+      // Lookahead delay line. The gain decision was made on the new
+      // sample; apply it to the 5 ms-older sample at the read head.
+      const delayed = this._delayBuf[this._delayPos];
+      this._delayBuf[this._delayPos] = x;
+      this._delayPos = (this._delayPos + 1) % this._lookaheadSize;
+
+      const leveled = delayed * this._currentGain;
+
+      // Peak limiter — react instantly to keep sample peak ≤ -1 dBFS.
+      const peakAbs = leveled < 0 ? -leveled : leveled;
+      const peakDesired = peakAbs > this._peakThreshLin
+        ? this._peakThreshLin / peakAbs
+        : 1.0;
+      const peakAlpha = peakDesired < this._peakGain
+        ? this._peakAttackAlpha
+        : this._peakReleaseAlpha;
+      this._peakGain += peakAlpha * (peakDesired - this._peakGain);
+
+      outCh[i] = leveled * this._peakGain;
+    }
+
+    // Diagnostic gain heartbeat.
+    this._gainPostCounter++;
+    if (this._gainPostCounter >= this._gainPostInterval) {
+      this._gainPostCounter = 0;
+      this.port.postMessage({
+        type: 'gain',
+        levelerDb: 20 * Math.log10(this._currentGain > 1e-12 ? this._currentGain : 1e-12),
+        limiterDb: 20 * Math.log10(this._peakGain > 1e-12 ? this._peakGain : 1e-12),
+      });
+    }
+    return true;
+  }
+}
+registerProcessor('stoat-leveler', StoatLevelerProcessor);
+`;
+let levelerWorkletUrl: string | null = null;
+function getLevelerWorkletUrl(): string {
+  if (!levelerWorkletUrl) {
+    levelerWorkletUrl = URL.createObjectURL(
+      new Blob([levelerWorkletCode], { type: "application/javascript" }),
+    );
+  }
+  return levelerWorkletUrl;
 }
 
 /** Tap a MediaStreamTrack for ~150 ms and return its RMS level as a dBFS string. */
@@ -304,13 +690,98 @@ const _prevTotalSamples = new Map<string, number>();
 const _prevBytesSent = new Map<string, { bytes: number; ts: number }>();
 const _prevPacketsSent = new Map<string, { packets: number; ts: number }>();
 
-async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: MediaStreamTrack | null) {
+// [Voice/H3] Rolling in-memory ring buffer of voice diagnostic snapshots.
+// At the default 30 s cadence this is ~30 minutes of history; bumped to 120
+// to comfortably cover most user reports of "I missed what they said." The
+// buffer drains on disconnect so memory does not grow unboundedly across
+// multiple sessions in one tab. Reachable via window.stoatDiag.history().
+export interface VoiceDiagSnapshot {
+  ts: number;                                       // Date.now() at capture
+  localIdentity?: string;
+  localQuality?: string;
+  pipeline: { df3Active: boolean };
+  upload: {
+    pps: number | null;
+    kbps: number | null;
+    rtt: number | null;
+    jitterMs: number | null;
+    lossPct: number | null;
+  };
+  screenshare?: {
+    width?: number;
+    height?: number;
+    fps: number | null;
+    kbps: number | null;
+    limitReason?: string;
+  };
+  remotes: Array<{
+    identity: string;
+    quality: string;
+    jitterMs: number | null;
+    lossPct: number | null;
+    concealedPct: number | null;
+    kbps: number | null;
+    muted: boolean;
+  }>;
+  levels: Record<string, string>;                   // label -> "X dBFS"|"-∞"|"err"
+}
+
+const VOICE_DIAG_HISTORY_CAPACITY = 120;
+const _voiceDiagHistory: VoiceDiagSnapshot[] = [];
+
+function pushVoiceDiagSnapshot(snap: VoiceDiagSnapshot): void {
+  _voiceDiagHistory.push(snap);
+  if (_voiceDiagHistory.length > VOICE_DIAG_HISTORY_CAPACITY) {
+    _voiceDiagHistory.splice(0, _voiceDiagHistory.length - VOICE_DIAG_HISTORY_CAPACITY);
+  }
+}
+
+export function getVoiceDiagHistory(): VoiceDiagSnapshot[] {
+  return _voiceDiagHistory.slice();
+}
+
+export function clearVoiceDiagHistory(): void {
+  _voiceDiagHistory.length = 0;
+}
+
+async function printVoiceStats(
+  room: Room,
+  df3Active: boolean,
+  rawMicTrack: MediaStreamTrack | null,
+  // [Voice/B4] Latest leveler heartbeat. Null on each axis means the
+  // leveler isn't running for one of the documented reasons (kill
+  // switch set, useStoatAgc off, or no heartbeat yet).
+  levelerStats?: { gainDb: number | null; limiterDb: number | null },
+) {
   const ts = new Date().toLocaleTimeString();
   console.group(`[Voice Diagnostics] ${ts}`);
+  // [Voice/H3] Built up alongside the console.log output so the snapshot
+  // semantics never drift from what the user sees logged. Emitted at the
+  // end of the function via pushVoiceDiagSnapshot.
+  const snap: VoiceDiagSnapshot = {
+    ts: Date.now(),
+    pipeline: { df3Active },
+    upload: { pps: null, kbps: null, rtt: null, jitterMs: null, lossPct: null },
+    remotes: [],
+    levels: {},
+  };
 
   const local = room.localParticipant;
   console.log(`Local participant: ${local.identity} | quality=${local.connectionQuality}`);
   console.log(`  Pipeline: DF3=${df3Active ? "✅ active" : "❌ inactive"}`);
+  // [Voice/B4] Surface the leveler's current gain so tuning rounds can
+  // see whether it's hitting the +12/-6 dB rails or sitting near unity.
+  if (levelerStats && (levelerStats.gainDb !== null || levelerStats.limiterDb !== null)) {
+    const lev = levelerStats.gainDb !== null
+      ? `${levelerStats.gainDb >= 0 ? "+" : ""}${levelerStats.gainDb.toFixed(1)} dB`
+      : "—";
+    const lim = levelerStats.limiterDb !== null
+      ? `${levelerStats.limiterDb.toFixed(1)} dB`
+      : "—";
+    console.log(`  Leveler (B4): gain=${lev}, peak-limiter=${lim}`);
+  }
+  snap.localIdentity = local.identity;
+  snap.localQuality = String(local.connectionQuality);
 
   // Upload: local microphone RTCRtpSender stats
   const micPub = local.getTrackPublication(Track.Source.Microphone);
@@ -334,6 +805,8 @@ async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: Medi
             _prevBytesSent.set(ulKey, { bytes: r.bytesSent, ts: ulNow });
             _prevPacketsSent.set(ulKey, { packets: r.packetsSent, ts: ulNow });
             console.log(`  Upload mic: pps=${ulPps} (expect ~50), kbps=${ulKbps}, packetsSent=${r.packetsSent}`);
+            snap.upload.pps = ulPpsPrev ? Number(ulPps) : null;
+            snap.upload.kbps = ulPrev ? Number(ulKbps) : null;
           }
           if (r.type === "remote-inbound-rtp") {
             const jitter = ((r.jitter ?? 0) * 1000).toFixed(1);
@@ -341,6 +814,9 @@ async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: Medi
             const rtt = rttRaw > 0 && rttRaw < 5000 ? `${rttRaw.toFixed(0)}ms` : "pending";
             const loss = ((r.fractionLost ?? 0) * 100).toFixed(1);
             console.log(`  Upload quality (server sees): RTT=${rtt}, jitter=${jitter}ms, loss=${loss}%`);
+            snap.upload.jitterMs = Number(jitter);
+            snap.upload.rtt = rttRaw > 0 && rttRaw < 5000 ? Math.round(rttRaw) : null;
+            snap.upload.lossPct = Number(loss);
           }
         });
       }
@@ -370,6 +846,13 @@ async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: Medi
             const fps = (r.framesPerSecond ?? 0).toFixed(1);
             const limitReason = r.qualityLimitationReason ?? "unknown";
             console.log(`  Upload screenshare: ${r.frameWidth ?? "?"}×${r.frameHeight ?? "?"}@${fps}fps, ${ssKbps}kbps | limit=${limitReason}`);
+            snap.screenshare = {
+              width: r.frameWidth,
+              height: r.frameHeight,
+              fps: Number(fps),
+              kbps: ssPrev ? Number(ssKbps) : null,
+              limitReason: String(limitReason),
+            };
           }
         });
       }
@@ -413,6 +896,15 @@ async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: Medi
                 : "—";
               _prevBytesSent.set(dlKey, { bytes: r.bytesReceived, ts: dlNow });
               console.log(`  ${p.identity}: quality=${q}, jitter=${jitter}ms, loss=${loss}%, concealed=${concealPct}%, dl=${dlKbps}kbps, muted=${pub.isMuted}`);
+              snap.remotes.push({
+                identity: p.identity,
+                quality: String(q),
+                jitterMs: Number(jitter),
+                lossPct: Number(loss),
+                concealedPct: Number(concealPct),
+                kbps: dlPrev ? Number(dlKbps) : null,
+                muted: pub.isMuted,
+              });
             }
           });
         }
@@ -421,6 +913,15 @@ async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: Medi
       }
     } else {
       console.log(`  ${p.identity}: quality=${q}, no audio track`);
+      snap.remotes.push({
+        identity: p.identity,
+        quality: String(q),
+        jitterMs: null,
+        lossPct: null,
+        concealedPct: null,
+        kbps: null,
+        muted: false,
+      });
     }
   }
 
@@ -454,9 +955,13 @@ async function printVoiceStats(room: Room, df3Active: boolean, rawMicTrack: Medi
   if (levelChecks.length > 0) {
     const levels = await Promise.all(levelChecks.map(({ track }) => measureDbfs(track)));
     console.log("  Signal levels (150 ms sample):");
-    levelChecks.forEach(({ label }, i) => console.log(`    ${label}: ${levels[i]}`));
+    levelChecks.forEach(({ label }, i) => {
+      console.log(`    ${label}: ${levels[i]}`);
+      snap.levels[label] = levels[i];
+    });
   }
 
+  pushVoiceDiagSnapshot(snap);
   console.groupEnd();
 }
 
@@ -516,6 +1021,14 @@ class Voice {
   showBar: Accessor<boolean>;
   #setShowBar: Setter<boolean>;
 
+  // [Voice/J3] Reactive flag that flips true when the Silero VAD assets fail
+  // to load (network blip, 404 on /silero/*, ONNX runtime error). The gate
+  // falls back to RMS-only when this happens; the UI surfaces a small notice
+  // so users know smart detection isn't running. Cleared on the next
+  // successful #startSileroVad.
+  sileroLoadFailed: Accessor<boolean>;
+  #setSileroLoadFailed: Setter<boolean>;
+
   private openModal: ModalController["openModal"];
   private getClient: ReturnType<typeof useClient>;
 
@@ -524,8 +1037,74 @@ class Voice {
   // Input sensitivity gate AudioContext + worklet node
   #inputGateCtx: AudioContext | null = null;
   #inputGateNode: AudioWorkletNode | null = null;
+  // [STOAT-AGC] Custom AGC node — always present in the graph when the gate
+  // is, with `enabled` toggled live via port. Inserted between gate and dest
+  // so it runs pre-DF3.
+  #agcNode: AudioWorkletNode | null = null;
+  // [Voice/A2] HPF biquad inserted at the start of the AudioContext graph
+  // when A2 is active. 80 Hz / Q=0.707 — removes AC hum, rumble, plosive
+  // thumps. Null when A2 is disabled via kill switch. Recreated on every
+  // graph rebuild because its upstream `src` is recreated.
+  #hpfRumbleNode: BiquadFilterNode | null = null;
+  // [Voice/A2] DF3 instantiated as a Web Audio node in our own AudioContext
+  // instead of as a LiveKit track processor. Created lazily on the first
+  // #applyInputGate after the AudioContext exists; reused across graph
+  // rebuilds so the model stays warm and continuous across track restarts.
+  // Destroyed only when #cleanupInputGate closes the AudioContext.
+  // Null when A2 is disabled via kill switch.
+  #df3Core: DeepFilterNet3Core | null = null;
+  #df3Node: AudioWorkletNode | null = null;
+  // [Voice/B4] Latest leveler gain heartbeats from the stoat-leveler
+  // worklet. Updated every ~107 ms when the leveler is active; null when
+  // the leveler isn't in the graph (B4 kill switch set, or useStoatAgc
+  // off and the legacy worklet is bypassed). Surfaced via getLevelerStats
+  // for window.stoatDiag and the 30 s diagnostic auto-print.
+  #levelerGainDb: number | null = null;
+  #levelerLimiterDb: number | null = null;
+  // The MediaStreamDestination node lives across rebuilds so its track
+  // (the one published via replaceTrack) is never stopped or replaced. This
+  // also keeps the audio graph "pulled" continuously, which prevents Chrome
+  // from auto-suspending the AudioContext during the window between
+  // disconnect-old-nodes and connect-new-nodes on a settings change.
+  #inputGateDest: MediaStreamAudioDestinationNode | null = null;
+  // [VOICE-DEBUG-CAPTURE] Tap-point handles into the existing input gate
+  // graph. Set by #applyInputGate, cleared by #cleanupInputGate. Only used
+  // when a debug capture is armed — no impact on the live audio path.
+  #tapRawSrc: MediaStreamAudioSourceNode | null = null;
+  #tapBandpass: BiquadFilterNode | null = null;
+  // Active debug-capture session (null when none in progress).
+  #captureSession: DebugCaptureSession | null = null;
+  // Set by debug capture if applyMicConstraints fires while a capture is
+  // running; the rebuild then runs once after capture ends.
+  #micConstraintsDeferredDuringCapture = false;
+  // [Voice/H2] Active A/B harness session (null when none in progress).
+  // Mutually-exclusive with #captureSession — they share the input-gate
+  // AudioContext and the capture-recorder worklet, and serialising them
+  // sidesteps any race over which session "owns" the rebuild-defer flag.
+  #abHarnessSession: ABHarnessSession | null = null;
   // Public read accessor for diagnostics — returns the pre-gate mic track.
   get rawMicTrack(): MediaStreamTrack | null { return this.#rawMicTrack; }
+  // [Voice/A2] True when DF3 is running, regardless of whether it's a Web
+  // Audio node (A2 active) or a LiveKit TrackProcessor (legacy). Used by
+  // printVoiceStats so the diagnostic banner reflects reality under A2.
+  isDf3Active(): boolean {
+    if (this.#df3Node) return true;
+    const room = this.room();
+    const micPub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+    // Dodge the protected `processor` accessor on LocalAudioTrack the same
+    // way the debug-capture stage-5 tap does.
+    return !!((micPub?.track as unknown as { processor?: unknown })?.processor);
+  }
+  // [Voice/B4] Latest leveler gain heartbeat snapshot for diagnostics.
+  // Both values are null when the leveler isn't running (kill switch set,
+  // useStoatAgc off, or before the first heartbeat lands).
+  getLevelerStats(): { gainDb: number | null; limiterDb: number | null } {
+    return { gainDb: this.#levelerGainDb, limiterDb: this.#levelerLimiterDb };
+  }
+  // [VOICE-DEBUG-CAPTURE] Surface the active session to the settings UI.
+  get debugCaptureSession(): DebugCaptureSession | null { return this.#captureSession; }
+  // [Voice/H2] Surface the active A/B harness session to the settings UI.
+  get abHarnessSession(): ABHarnessSession | null { return this.#abHarnessSession; }
   // [VAD-IMPROVEMENT-#8] Silero VAD second-pass classifier (loaded on demand
   // via dynamic import). null when disabled or not yet running.
   // Type kept loose because the package's MicVAD type isn't re-exported cleanly.
@@ -538,6 +1117,17 @@ class Voice {
   #sileroStartInFlight: Promise<void> | null = null;
   // Raw (pre-gate) mic track, kept for periodic auto-calibration
   #rawMicTrack: MediaStreamTrack | null = null;
+  // [Voice/J4] Tracks whether the mic publish-warmup sequence has run for this
+  // Room session. Set true at the end of the localTrackPublished handler;
+  // reset to false on disconnect. Used to gate the warmup-mute window to
+  // initial connect only — PTT first-press and post-reconnect republish skip
+  // the mute (their UX contracts differ; DF3 is also warm-cached by then).
+  #hasMicWarmedUp = false;
+  // [Voice/J5] Snapshot of #settings.micOn taken at the moment of self-deafen,
+  // restored on undeafen. null when not currently deafened. PTT users: this
+  // captures whatever mic state PTT had at deafen-time (typically false between
+  // keypresses); the next keypress overrides as normal.
+  #preDeafenMicOn: boolean | null = null;
   #calibrationInterval: ReturnType<typeof setInterval> | null = null;
   // Rolling history of per-window minimum RMS values (~10 min at 30 s cadence)
   #calibrationHistory: number[] = [];
@@ -608,6 +1198,10 @@ class Voice {
     this.showBar = showBar;
     this.#setShowBar = setShowBar;
 
+    const [sileroLoadFailed, setSileroLoadFailed] = createSignal(false);
+    this.sileroLoadFailed = sileroLoadFailed;
+    this.#setSileroLoadFailed = setSileroLoadFailed;
+
     this.openModal = modals.openModal.bind(modals);
     this.getClient = useClient();
   }
@@ -647,7 +1241,9 @@ class Voice {
         deviceId: this.#settings.preferredAudioInputDevice,
         echoCancellation: this.#settings.echoCancellation ?? true,
         noiseSuppression: false, // DF3 handles noise suppression via setProcessor
-        autoGainControl: true,
+        // [STOAT-AGC] Chrome AGC is now opt-in via setting. The Stoat AGC
+        // worklet handles dynamics afterwards in the gate AudioContext.
+        autoGainControl: this.#settings.chromeAgcEnabled ?? true,
       },
       videoCaptureDefaults: {
         resolution: VideoPresets.h1080.resolution,
@@ -720,6 +1316,10 @@ class Voice {
       }
       this.#rawMicTrack = null;
       this.#calibrationHistory = [];
+      // [Voice/J4] Re-arm the warmup-mute on next connect.
+      this.#hasMicWarmedUp = false;
+      // [Voice/J5] Drop any stale pre-deafen snapshot from this session.
+      this.#preDeafenMicOn = null;
     });
 
     // Attach input gate + DF3 to any newly published mic track — covers initial
@@ -729,46 +1329,102 @@ class Voice {
       const track = publication.track as LocalAudioTrack | undefined;
       if (!track) return;
 
-      // Input gate runs pre-DF3; #applyInputGate also captures #rawMicTrack.
-      await this.#applyInputGate(track);
+      // [Voice/J4] On initial connect, mute the publication at the WebRTC layer
+      // for the duration of #applyInputGate + DF3 attach. Without this, the SFU
+      // forwards raw mic (Window A: ~5–50 ms before replaceTrack swaps in the
+      // dest-node track) and then gate-output-without-DF3 (Window B: up to
+      // ~500 ms while DF3 model loads) — audible to listeners as the original
+      // "scratchy / garbled / sudden cut-in at the very start" complaint.
+      //
+      // Skip on subsequent publishes (PTT first-press, post-reconnect republish):
+      //   • PTT users pressed a key expecting immediate transmission — mute
+      //     would be perceptible.
+      //   • DF3 is already model-cached by then; Window B collapses to <50 ms.
+      //
+      // Skip when DF3 is disabled — no Window B exists; Window A alone is
+      // sub-detection, and the user explicitly opted out of NS.
+      const wantDF3 = (this.#settings.noiseSupression ?? true)
+        && DeepFilterNoiseFilterProcessor.isSupported();
+      const shouldMute = !this.#hasMicWarmedUp
+        && wantDF3
+        && !isMicWarmupMuteDisabled();
 
-      // Initial calibration — periodic calibration is driven by #calibrationInterval.
-      if ((this.#settings.inputSensitivityAuto ?? true) && this.#rawMicTrack) {
-        void this.#calibrateInputSensitivity(this.#rawMicTrack);
-      }
-
-      // [VAD-IMPROVEMENT-#12] Mark outgoing voice as high network-priority so
-      // QoS-aware routers / congestion controllers favor audio packets over
-      // bulk traffic on the same path (e.g. screenshare on the publisher PC).
-      // Applied per-encoding on the underlying RTCRtpSender — LiveKit doesn't
-      // expose this via publishDefaults at v2.13.0.
-      // To revert: delete this try/catch block.
-      try {
-        const sender = (track as unknown as { sender?: RTCRtpSender }).sender;
-        if (sender) {
-          const params = sender.getParameters();
-          for (const enc of params.encodings ?? []) {
-            (enc as RTCRtpEncodingParameters & { networkPriority?: RTCPriorityType }).networkPriority = "high";
-          }
-          await sender.setParameters(params);
+      if (shouldMute) {
+        try {
+          await track.mute();
+        } catch (e) {
+          // If mute fails we degrade to legacy behavior — don't abort the publish.
+          console.warn("[Voice/J4] mic warmup mute failed (degrading to legacy):", e);
         }
-      } catch (e) {
-        // Non-fatal — networkPriority is a hint.
-        console.warn("[Voice] networkPriority hint not applied:", e);
       }
 
-      if (!this.#settings.noiseSupression) return;
-      if (!DeepFilterNoiseFilterProcessor.isSupported()) {
-        console.warn("[Voice] DF3 not supported in this browser");
-        return;
-      }
       try {
-        await track.setProcessor(
-          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" }, noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 20 }),
-        );
-        console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
-      } catch (e) {
-        console.warn("[Voice] ❌ DeepFilterNet3 failed to start:", e);
+        // Input gate runs pre-DF3; #applyInputGate also captures #rawMicTrack.
+        await this.#applyInputGate(track);
+
+        // Initial calibration — periodic calibration is driven by #calibrationInterval.
+        if ((this.#settings.inputSensitivityAuto ?? true) && this.#rawMicTrack) {
+          void this.#calibrateInputSensitivity(this.#rawMicTrack);
+        }
+
+        // [VAD-IMPROVEMENT-#12] Mark outgoing voice as high network-priority so
+        // QoS-aware routers / congestion controllers favor audio packets over
+        // bulk traffic on the same path (e.g. screenshare on the publisher PC).
+        // Applied per-encoding on the underlying RTCRtpSender — LiveKit doesn't
+        // expose this via publishDefaults at v2.13.0.
+        // To revert: delete this try/catch block.
+        try {
+          const sender = (track as unknown as { sender?: RTCRtpSender }).sender;
+          if (sender) {
+            const params = sender.getParameters();
+            for (const enc of params.encodings ?? []) {
+              (enc as RTCRtpEncodingParameters & { networkPriority?: RTCPriorityType }).networkPriority = "high";
+            }
+            await sender.setParameters(params);
+          }
+        } catch (e) {
+          // Non-fatal — networkPriority is a hint.
+          console.warn("[Voice] networkPriority hint not applied:", e);
+        }
+
+        if (!this.#settings.noiseSupression) return;
+        // [Voice/A2] When the new architecture is active, DF3 is already
+        // wired in the AudioContext graph by #applyInputGate above —
+        // skip the legacy LiveKit setProcessor attach. Under the kill
+        // switch, fall through to the original setProcessor path.
+        if (!isStoatFixDisabled("disableA2Architecture")) return;
+        if (!DeepFilterNoiseFilterProcessor.isSupported()) {
+          console.warn("[Voice] DF3 not supported in this browser");
+          return;
+        }
+        try {
+          await track.setProcessor(
+            new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" }, noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 25 }),
+          );
+          console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
+        } catch (e) {
+          console.warn("[Voice] ❌ DeepFilterNet3 failed to start:", e);
+        }
+      } finally {
+        // [Voice/J4] Mark warmup complete *before* the unmute, so any
+        // republish triggered during/after unmute also skips the mute path.
+        this.#hasMicWarmedUp = true;
+        if (shouldMute && track.isMuted) {
+          // Honor settings that may have changed during warmup. If PTT is
+          // enabled, post-connect logic at line ~991 will call
+          // setMicrophoneEnabled(false) anyway — unmuting here would leak
+          // ~tens-of-ms of audio between unmute and re-mute.
+          // (`deafen` is intentionally not checked: deafen controls local
+          // audio output, not mic state, matching the existing setMute() /
+          // post-connect mic plumbing.)
+          if (this.#settings.micOn && !this.#settings.pushToTalkEnabled) {
+            try {
+              await track.unmute();
+            } catch (e) {
+              console.warn("[Voice/J4] mic warmup unmute failed:", e);
+            }
+          }
+        }
       }
     });
 
@@ -875,6 +1531,23 @@ class Voice {
   #micConstraintsPending = false;
 
   async applyMicConstraints(): Promise<void> {
+    // [VOICE-DEBUG-CAPTURE] Defer mic-graph rebuilds while a capture is
+    // running — restartTrack would replace the gate AudioContext mid-record
+    // and corrupt the bundle. The deferred flag triggers one trailing run
+    // when the capture ends.
+    if (this.#captureSession) {
+      this.#micConstraintsDeferredDuringCapture = true;
+      return;
+    }
+    // [Voice/H2] Same protection while the A/B harness is actively
+    // recording a pass — settings changes between passes are intentional
+    // and must propagate, but mid-record rebuilds would replace the
+    // tap node mid-buffer and produce a torn recording.
+    const abState = this.#abHarnessSession?.state();
+    if (abState === "recording-a" || abState === "recording-b") {
+      this.#micConstraintsDeferredDuringCapture = true;
+      return;
+    }
     if (this.#micConstraintsInFlight) {
       this.#micConstraintsPending = true;
       return this.#micConstraintsInFlight;
@@ -903,25 +1576,28 @@ class Voice {
     const nsEnabled = this.#settings.noiseSupression ?? true;
     const ecEnabled = this.#settings.echoCancellation ?? true;
 
-    try {
-      const options: AudioCaptureOptions = {
-        noiseSuppression: false,
-        echoCancellation: ecEnabled,
-        autoGainControl: true,
-        deviceId: this.#settings.preferredAudioInputDevice,
-      };
-      await track.restartTrack(options);
-    } catch (e) {
-      console.warn("[Voice] restartTrack failed:", e);
-    }
-
-    // Reapply input gate — restartTrack resets to the raw getUserMedia track.
+    // Skip livekit-client's restartTrack — it misbehaves on tracks that
+    // were previously user-provided via replaceTrack(track, true). Instead
+    // of acquiring fresh getUserMedia, it ends our destination track and
+    // sets track.mediaStreamTrack to a phantom destination-node track,
+    // breaking the entire downstream pipeline. Diagnostic logs caught this
+    // (rawLabel: "MediaStreamAudioDestinationNode" + destTrackReady:
+    // "ended" on rebuild). #applyInputGate now does its own getUserMedia
+    // call so we control the mic acquisition lifecycle end-to-end.
     await this.#applyInputGate(track);
+
+    // [Voice/A2] Under the new architecture, DF3 lives as a node inside
+    // #applyInputGate's graph. The rebuild above already re-applied the
+    // current noiseSupression toggle and noiseSupressionLevel slider to
+    // the DF3 core, so the LiveKit setProcessor / stopProcessor path is
+    // intentionally a no-op here. The kill-switch path keeps the
+    // original behavior unchanged.
+    if (!isStoatFixDisabled("disableA2Architecture")) return;
 
     try {
       if (nsEnabled) {
         await track.setProcessor(
-          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" }, noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 20 }),
+          new DeepFilterNoiseFilterProcessor({ assetConfig: { cdnUrl: "/df3-assets" }, noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 25 }),
         );
         console.log("[Voice] ✅ DeepFilterNet3 noise suppression active");
       } else {
@@ -936,6 +1612,17 @@ class Voice {
   disconnect() {
     const room = this.room();
     if (!room) return;
+
+    // [VOICE-DEBUG-CAPTURE] Cancel any active capture session — its nodes
+    // live in the input gate's AudioContext which is about to close.
+    if (this.#captureSession) {
+      try { this.#captureSession.cancel(); } catch { /* ignore */ }
+    }
+    // [Voice/H2] Same teardown for the A/B harness — its recorder and
+    // playback nodes also depend on the gate AudioContext.
+    if (this.#abHarnessSession) {
+      try { this.#abHarnessSession.cancel(); } catch { /* ignore */ }
+    }
 
     // Stop per-process audio capture if active
     this.#stopAppAudioCapture();
@@ -971,7 +1658,39 @@ class Voice {
     const wasDeafened = this.deafen();
     const newDeafened = !wasDeafened;
     this.#settings.deafen = newDeafened;
-    this.room()?.localParticipant.setAttributes({ deafened: newDeafened ? "true" : "false" });
+    const room = this.room();
+    room?.localParticipant.setAttributes({ deafened: newDeafened ? "true" : "false" });
+
+    // [Voice/J5] Auto-mute mic on deafen, restore prior state on undeafen.
+    // Bypasses setMute() so the mute/unmute notification sound doesn't double up
+    // with playDeafen/playUndeafen. PTT semantics: undeafen restores micOn to
+    // its pre-deafen value (typically false for PTT users between keypresses);
+    // the next PTT keypress takes over as normal.
+    if (room && !isStoatFixDisabled("disableDeafenAutoMute")) {
+      if (!wasDeafened) {
+        this.#preDeafenMicOn = this.#settings.micOn;
+        if (this.#settings.micOn) {
+          try {
+            await room.localParticipant.setMicrophoneEnabled(false);
+            this.#settings.micOn = false;
+          } catch (e) {
+            console.warn("[Voice/J5] auto-mute on deafen failed:", e);
+          }
+        }
+      } else {
+        const restoreTo = this.#preDeafenMicOn;
+        this.#preDeafenMicOn = null;
+        if (restoreTo === true && !this.#settings.micOn) {
+          try {
+            await room.localParticipant.setMicrophoneEnabled(true);
+            this.#settings.micOn = true;
+          } catch (e) {
+            console.warn("[Voice/J5] auto-restore on undeafen failed:", e);
+          }
+        }
+      }
+    }
+
     if (!wasDeafened) {
       voiceNotifications.playDeafen();
     } else {
@@ -1437,19 +2156,137 @@ class Voice {
   }
 
   async #applyInputGate(track: LocalAudioTrack): Promise<void> {
-    await this.#cleanupInputGate();
+    // Reuse the existing AudioContext across rebuilds. Chrome puts new
+    // AudioContexts in 'suspended' state and only auto-resumes when they
+    // were created within a user-gesture call stack (e.g. clicking "join
+    // voice"). Settings-change rebuilds happen later, outside the gesture
+    // chain, so a fresh context stays suspended forever — and resume()
+    // called outside a gesture resolves successfully but does NOT actually
+    // run the context. Symptom: post-toggle voice transmission AND debug
+    // captures both go silent across the whole audio graph until reload.
+    //
+    // Fix: build the context once at first join (inside the gesture) and
+    // rewire only the worklet nodes / source on later rebuilds. Worklet
+    // module URLs are blob: URLs deduped by addModule() — calling them
+    // again on the same context is a cheap no-op.
+    const isRebuild = !!this.#inputGateCtx && this.#inputGateCtx.state !== "closed";
+    console.log("[Voice/diag] applyInputGate enter:", {
+      isRebuild,
+      ctxState: this.#inputGateCtx?.state ?? "none",
+      ctxStartTime: this.#inputGateCtx?.currentTime,
+      hasDest: !!this.#inputGateDest,
+      trackMSTrackId: track.mediaStreamTrack?.id,
+      trackMSTrackReady: track.mediaStreamTrack?.readyState,
+    });
+    await this.#disconnectGateNodes();
+    console.log("[Voice/diag] after disconnect:", { ctxState: this.#inputGateCtx?.state });
     const dbfs = this.#settings.inputSensitivity ?? -60;
     const threshold = Math.pow(10, dbfs / 20);
     try {
-      const ctx = new AudioContext({ sampleRate: 48000 });
+      let ctx = this.#inputGateCtx;
+      if (!ctx || ctx.state === "closed") {
+        ctx = new AudioContext({ sampleRate: 48000 });
+        // resume() inside the user gesture (initial join) succeeds; on a
+        // settings rebuild it's a no-op but doesn't hurt.
+        await ctx.resume().catch(() => { /* ignore */ });
+        this.#inputGateCtx = ctx;
+        console.log("[Voice/diag] created new ctx:", { state: ctx.state });
+      } else {
+        console.log("[Voice/diag] reusing ctx:", { state: ctx.state });
+      }
       await ctx.audioWorklet.addModule(getInputGateWorkletUrl());
-      // Capture raw track before replaceTrack swaps track.mediaStreamTrack.
-      this.#rawMicTrack = track.mediaStreamTrack;
-      const src = ctx.createMediaStreamSource(new MediaStream([this.#rawMicTrack.clone()]));
+      // [STOAT-AGC] Register the AGC worklet alongside the gate so we can
+      // wire the node in below; the bypass path is byte-equivalent (5 ms
+      // delay only) when the user has Stoat AGC disabled.
+      await ctx.audioWorklet.addModule(getAgcWorkletUrl());
+      // [Voice/B4] Register the leveler worklet alongside the legacy AGC.
+      // Both modules load idempotently per AudioContext (addModule dedupes
+      // by URL). We pick which AudioWorkletNode to instantiate below
+      // based on the B4 kill switch — keeping both registrations means a
+      // future toggle path (if we wanted to expose it in settings rather
+      // than only via reload) is just an instantiation choice.
+      await ctx.audioWorklet.addModule(getLevelerWorkletUrl());
+      console.log("[Voice/diag] modules loaded:", { state: ctx.state });
+
+      // [Voice/A2] One-time DF3 init for the lifetime of this AudioContext.
+      // The wrapper hides its own worklet module registration inside
+      // createAudioWorkletNode, so we don't need a parallel addModule call.
+      // setNoiseSuppressionEnabled / setSuppressionLevel are reapplied on
+      // every rebuild from the current settings so the toggle and slider
+      // stay live without touching the model state.
+      const a2Disabled = isStoatFixDisabled("disableA2Architecture");
+      if (!a2Disabled && !this.#df3Core) {
+        try {
+          const core = new DeepFilterNet3Core({
+            sampleRate: 48000,
+            noiseReductionLevel: this.#settings.noiseSupressionLevel ?? 25,
+            assetConfig: { cdnUrl: "/df3-assets" },
+          });
+          await core.initialize();
+          const df3Node = await core.createAudioWorkletNode(ctx);
+          core.setNoiseSuppressionEnabled(this.#settings.noiseSupression ?? true);
+          this.#df3Core = core;
+          this.#df3Node = df3Node;
+          console.log("[Voice/A2] ✅ DeepFilterNet3 continuous node active");
+        } catch (e) {
+          // Non-fatal — graph wiring below will route src directly to the
+          // gate, skipping DF3. The user gets HPF + gate + AGC but no NS.
+          console.warn("[Voice/A2] ❌ DeepFilterNet3 init failed — running without NS:", e);
+        }
+      } else if (!a2Disabled && this.#df3Core) {
+        // Sync DF3 config with current settings on rebuild — the slider /
+        // toggle may have moved since the previous build.
+        try {
+          this.#df3Core.setNoiseSuppressionEnabled(this.#settings.noiseSupression ?? true);
+          this.#df3Core.setSuppressionLevel(this.#settings.noiseSupressionLevel ?? 25);
+        } catch { /* ignore */ }
+      }
+      // First build: trust track.mediaStreamTrack — LiveKit just acquired
+      // it via getUserMedia during the initial publish flow, before any
+      // user-provided-track flag has been set, so it's a real mic.
+      // Rebuild: do our own getUserMedia so we can apply the new EC /
+      // chrome-AGC constraints; restartTrack misbehaves on user-provided
+      // tracks and ends up handing back a destination-node track instead
+      // of a mic (caught in diagnostics).
+      const isFirstBuild = !this.#inputGateDest;
+      let newMic: MediaStreamTrack;
+      if (isFirstBuild) {
+        newMic = track.mediaStreamTrack;
+      } else {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: this.#settings.preferredAudioInputDevice,
+            echoCancellation: this.#settings.echoCancellation ?? true,
+            noiseSuppression: false, // DF3 handles NS as a track processor
+            autoGainControl: this.#settings.chromeAgcEnabled ?? true,
+          },
+        });
+        newMic = stream.getAudioTracks()[0];
+        const prevMic = this.#rawMicTrack;
+        if (prevMic && prevMic !== newMic) {
+          try { prevMic.stop(); } catch { /* ignore */ }
+        }
+      }
+      this.#rawMicTrack = newMic;
+      const cloned = newMic.clone();
+      console.log("[Voice/diag] raw mic + clone:", {
+        isFirstBuild,
+        rawId: newMic.id,
+        rawReady: newMic.readyState,
+        rawEnabled: newMic.enabled,
+        rawMuted: newMic.muted,
+        rawLabel: newMic.label,
+        cloneId: cloned.id,
+        cloneReady: cloned.readyState,
+      });
+      const src = ctx.createMediaStreamSource(new MediaStream([cloned]));
 
       // [VAD-IMPROVEMENT-#5] Build a 300-3400 Hz speech-band side-chain via
       // cascaded high-pass + low-pass biquads (Butterworth Q≈0.707). Only the
       // detector input sees the filter — clean audio path is untouched.
+      // [Voice/A2] Detector stays on raw mic in both architectures. The
+      // existing threshold tuning and auto-calibration are anchored to raw
+      // mic levels; piping the detector through DF3 would invalidate them.
       // To revert: connect src directly to gate input 1 and skip both biquads.
       const hp = new BiquadFilterNode(ctx, { type: "highpass", frequency: 300, Q: 0.707 });
       const lp = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 3400, Q: 0.707 });
@@ -1461,17 +2298,169 @@ class Voice {
         numberOfOutputs: 1,
         outputChannelCount: [1],
       });
-      gate.port.postMessage({ threshold });
+      // [Voice/A2] When the new pipeline is active, tell the gate to skip
+      // its legacy -45 dBFS bleed floor — DF3 sits upstream and no longer
+      // needs to be kept warm by the gate.
+      gate.port.postMessage({ threshold, disableBleed: !a2Disabled });
 
-      src.connect(gate, 0, 0); // input 0 = clean audio
-      lp.connect(gate, 0, 1);  // input 1 = bandpass-filtered detector
+      // [Voice/A2 / A4] Gate signal input wiring differs by architecture.
+      //   A2 active: src → HPF 80 Hz → DF3 (continuous) → gate input 0.
+      //              DF3 runs on raw post-AEC mic, before the gate, so
+      //              its noise model is always warm. HPF stays wired even
+      //              if DF3 init failed earlier — the rumble cut is
+      //              strictly an improvement and doesn't need NS.
+      //   A2 disabled (kill switch): src → gate input 0 directly, matching
+      //              the legacy pipeline where DF3 ran as a LiveKit
+      //              setProcessor downstream of the gate+AGC.
+      // The detector path (src → hp → lp → gate input 1) is identical in
+      // both modes so the existing gate tuning is preserved.
+      if (!a2Disabled) {
+        const hpfRumble = new BiquadFilterNode(ctx, {
+          type: "highpass",
+          frequency: 80,
+          Q: 0.707,
+        });
+        src.connect(hpfRumble);
+        if (this.#df3Node) {
+          hpfRumble.connect(this.#df3Node);
+          this.#df3Node.connect(gate, 0, 0);
+        } else {
+          // DF3 init failed — route HPF straight to the gate. User gets
+          // rumble cut + gate + AGC but no NS until DF3 recovers on the
+          // next rebuild. The warning was already logged at init time.
+          hpfRumble.connect(gate, 0, 0);
+        }
+        this.#hpfRumbleNode = hpfRumble;
+      } else {
+        src.connect(gate, 0, 0); // input 0 = clean audio (legacy path)
+      }
+      lp.connect(gate, 0, 1);  // input 1 = bandpass-filtered detector (raw mic)
 
-      const dest = ctx.createMediaStreamDestination();
-      gate.connect(dest);
-      await track.replaceTrack(dest.stream.getAudioTracks()[0], true);
+      // [STOAT-AGC / Voice/B4] Always insert an AGC-class node; toggle
+      // the `enabled` flag via port so changing useStoatAgc doesn't
+      // require rebuilding the AudioContext. Bypass path is 5 ms delay
+      // only — byte-equivalent across both worklet implementations so
+      // swapping has no audible click.
+      //
+      // B4 kill switch (stoat.disableB4Leveler) selects which worklet
+      // instance is used:
+      //   • Unset (default): stoat-leveler — K-weighted LUFS-S leveler
+      //     with -1 dBFS sample-peak limiter. Target -20 LUFS-S
+      //     hardcoded; the stoatAgcTargetDbfs slider is inert.
+      //   • Set: stoat-agc — legacy envelope-follower AGC. The slider
+      //     drives its target as before.
+      const useLeveler = !isStoatFixDisabled("disableB4Leveler");
+      const agc = new AudioWorkletNode(
+        ctx,
+        useLeveler ? "stoat-leveler" : "stoat-agc",
+        {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+        },
+      );
+      if (useLeveler) {
+        agc.port.postMessage({
+          enabled: this.#settings.useStoatAgc ?? false,
+          silentThresholdDbfs: -50,
+        });
+        // Heartbeats from the leveler land here every ~107 ms. Cleared on
+        // disconnect via #disconnectGateNodes (the node is disconnected
+        // and re-created on every rebuild, so its onmessage handler
+        // goes with it).
+        agc.port.onmessage = (ev) => {
+          const d = ev.data as { type?: string; levelerDb?: number; limiterDb?: number };
+          if (d?.type === "gain") {
+            this.#levelerGainDb = typeof d.levelerDb === "number" ? d.levelerDb : null;
+            this.#levelerLimiterDb = typeof d.limiterDb === "number" ? d.limiterDb : null;
+          }
+        };
+      } else {
+        agc.port.postMessage({
+          enabled: this.#settings.useStoatAgc ?? false,
+          targetDbfs: this.#settings.stoatAgcTargetDbfs ?? -18,
+          maxGainDb: 18,
+          minGainDb: -12,
+          silentThresholdDbfs: -50,
+        });
+        // Legacy worklet doesn't emit gain heartbeats — clear any stale
+        // values from a previous build that ran the leveler.
+        this.#levelerGainDb = null;
+        this.#levelerLimiterDb = null;
+      }
+
+      // Reuse the existing dest node across rebuilds. The published
+      // MediaStreamTrack (dest.stream.getAudioTracks()[0]) is created once
+      // on first build and never swapped — that means LiveKit doesn't
+      // re-negotiate the publication on every settings change, and Chrome
+      // doesn't briefly suspend the AudioContext during a tear-down/rewire
+      // window. Both rebuild bugs (silent post-toggle bundles, voice
+      // cutting out for listeners) collapse to this single fix.
+      let dest = this.#inputGateDest;
+      if (!dest) {
+        dest = ctx.createMediaStreamDestination();
+        this.#inputGateDest = dest;
+      }
+      gate.connect(agc);
+      agc.connect(dest);
+      const dt = dest.stream.getAudioTracks()[0];
+      console.log("[Voice/diag] dest state:", {
+        isFirstBuild,
+        destTrackId: dt?.id,
+        destTrackReady: dt?.readyState,
+        destTrackEnabled: dt?.enabled,
+        destTrackMuted: dt?.muted,
+      });
+      if (isFirstBuild) {
+        // userProvidedTrack=true — we manage this track's lifecycle, LiveKit
+        // doesn't try to stop or replace it.
+        await track.replaceTrack(dt, true);
+        console.log("[Voice/diag] first replaceTrack done:", {
+          nowMSTrackId: track.mediaStreamTrack?.id,
+          match: track.mediaStreamTrack === dt,
+        });
+      } else {
+        console.log("[Voice/diag] dest reused, skipping replaceTrack");
+      }
       this.#inputGateCtx = ctx;
       this.#inputGateNode = gate;
+      this.#agcNode = agc;
+      // [VOICE-DEBUG-CAPTURE] Expose the tap points for the dev capture flow.
+      // Disconnecting these references would alter the live audio path —
+      // they are only ever read, never disconnected. Cleared in #cleanupInputGate.
+      this.#tapRawSrc = src;
+      this.#tapBandpass = lp;
       console.log(`[Voice] ✅ Input gate active, threshold=${dbfs.toFixed(1)} dBFS`);
+
+      // [Voice/diag] Probe the live src signal 250 ms after wiring so we
+      // can see whether the AudioContext is actually producing samples
+      // through the rebuilt graph. -∞ here means the graph is connected
+      // but the source isn't flowing audio (most likely cause of the
+      // post-toggle silent-bundle bug).
+      void (async () => {
+        try {
+          await new Promise(r => setTimeout(r, 250));
+          const probe = ctx.createAnalyser();
+          probe.fftSize = 2048;
+          src.connect(probe);
+          await new Promise(r => setTimeout(r, 100));
+          const buf = new Float32Array(probe.fftSize);
+          probe.getFloatTimeDomainData(buf);
+          let ss = 0;
+          for (const v of buf) ss += v * v;
+          const probeRms = Math.sqrt(ss / buf.length);
+          const probeDb = probeRms > 1e-7 ? (20 * Math.log10(probeRms)).toFixed(1) : "-∞";
+          src.disconnect(probe);
+          console.log("[Voice/diag] post-build src probe:", {
+            ctxState: ctx.state,
+            currentTime: ctx.currentTime,
+            srcRmsDbfs: probeDb,
+            destTrackReady: this.#inputGateDest?.stream.getAudioTracks()[0]?.readyState,
+          });
+        } catch (e) {
+          console.warn("[Voice/diag] post-build probe failed:", e);
+        }
+      })();
 
       // [VAD-IMPROVEMENT-#8] Silero second-pass classifier (default on).
       // Loads onnxruntime-web (~5 MB cached) + silero_vad.onnx (~1 MB) on first
@@ -1524,10 +2513,12 @@ class Voice {
         await vad.start();
         this.#sileroVad = vad as unknown as { destroy(): void };
         this.#inputGateNode.port.postMessage({ sileroEnabled: true });
+        this.#setSileroLoadFailed(false);
         console.log("[Voice] ✅ Silero VAD second-pass active (self-hosted assets)");
       } catch (e) {
         console.warn("[Voice] ❌ Silero VAD failed to load — falling back to RMS-only gate:", e);
         this.#inputGateNode?.port.postMessage({ sileroEnabled: false });
+        this.#setSileroLoadFailed(true);
       }
     })();
     this.#sileroStartInFlight = p.finally(() => {
@@ -1559,12 +2550,68 @@ class Voice {
     else void this.#stopSileroVad();
   }
 
-  async #cleanupInputGate(): Promise<void> {
+  /**
+   * Disconnect the gate/AGC graph nodes WITHOUT closing the AudioContext.
+   * Called at the start of every #applyInputGate to discard the previous
+   * build before constructing the new one. The context survives so that
+   * its 'running' state — which was won during the user-gesture chain at
+   * voice-join time — is preserved across settings changes.
+   */
+  async #disconnectGateNodes(): Promise<void> {
+    // Silero is bound to the previous #rawMicTrack which the upcoming
+    // restartTrack/applyInputGate will replace. Stop it here so the next
+    // build can attach a fresh instance to the new track.
     await this.#stopSileroVad();
+    try { this.#tapRawSrc?.disconnect(); } catch { /* ignore */ }
+    try { this.#tapBandpass?.disconnect(); } catch { /* ignore */ }
+    try { this.#inputGateNode?.disconnect(); } catch { /* ignore */ }
+    try { this.#agcNode?.disconnect(); } catch { /* ignore */ }
+    // [Voice/A2] HPF biquad is recreated per build, but DF3 is reused — we
+    // disconnect both so the upcoming wiring step can re-route them through
+    // the freshly-created src / gate. The DF3 node itself stays alive on
+    // #df3Node so its worklet-side noise model state survives the rebuild.
+    try { this.#hpfRumbleNode?.disconnect(); } catch { /* ignore */ }
+    try { this.#df3Node?.disconnect(); } catch { /* ignore */ }
+    this.#tapRawSrc = null;
+    this.#tapBandpass = null;
+    this.#inputGateNode = null;
+    this.#agcNode = null;
+    this.#hpfRumbleNode = null;
+    // intentionally do NOT null #df3Node / #df3Core — they persist across rebuilds.
+  }
+
+  async #cleanupInputGate(): Promise<void> {
+    // [VOICE-DEBUG-CAPTURE] Cancel any active capture before tearing down
+    // its underlying AudioContext — capture nodes live inside #inputGateCtx.
+    if (this.#captureSession) {
+      try { this.#captureSession.cancel(); } catch { /* ignore */ }
+    }
+    // [Voice/H2] Same for the A/B harness.
+    if (this.#abHarnessSession) {
+      try { this.#abHarnessSession.cancel(); } catch { /* ignore */ }
+    }
+    await this.#disconnectGateNodes();
+    // [Voice/A2] Destroy DF3 alongside the AudioContext — its WASM and
+    // worklet processor live inside that context. Must run before
+    // ctx.close() so the wrapper can release its handles cleanly.
+    if (this.#df3Core) {
+      try { this.#df3Core.destroy(); } catch { /* ignore */ }
+      this.#df3Core = null;
+      this.#df3Node = null;
+    }
+    // [Voice/B4] Drop stale leveler heartbeat values now that the
+    // worklet is gone. Avoids the diagnostic reporting a frozen reading
+    // from the previous session.
+    this.#levelerGainDb = null;
+    this.#levelerLimiterDb = null;
     if (this.#inputGateCtx) {
       try { await this.#inputGateCtx.close(); } catch { /* ignore */ }
       this.#inputGateCtx = null;
-      this.#inputGateNode = null;
+    }
+    this.#inputGateDest = null;
+    if (this.#rawMicTrack) {
+      try { this.#rawMicTrack.stop(); } catch { /* ignore */ }
+      this.#rawMicTrack = null;
     }
   }
 
@@ -1574,6 +2621,689 @@ class Voice {
       this.#inputGateNode.port.postMessage({ threshold: Math.pow(10, dbfs / 20) });
     }
   }
+
+  /**
+   * [STOAT-AGC] Live-update the AGC worklet without restarting the track.
+   * No-ops when the gate isn't built yet — config will be applied on the
+   * next #applyInputGate call (which reads the current settings).
+   */
+  updateAgcConfig(opts: { enabled?: boolean; targetDbfs?: number }): void {
+    if (this.#agcNode) {
+      this.#agcNode.port.postMessage(opts);
+    }
+  }
+
+  /**
+   * [VOICE-DEBUG-CAPTURE] Arm a 30-second sample-aligned dump of the four
+   * outgoing-pipeline tap points to a user-picked directory.
+   *
+   *   01_raw_mic.wav        — pre-bandpass, pre-gate, post-getUserMedia
+   *   02_post_bandpass.wav  — side-chain (gate detector input only)
+   *   03_post_gate.wav      — gate output, pre-DF3
+   *   04_post_dfn3.wav      — final transmitted audio (omitted if DF3 inactive)
+   *
+   * All four recorders are AudioWorkletNodes attached to the same
+   * #inputGateCtx, connected synchronously so their first samples land at
+   * the same render-quantum boundary (variance ≪ 1 ms). Returns a session
+   * handle whose accessors drive the settings UI.
+   *
+   * Pre-conditions: the user is already in a voice channel (input gate is
+   * active). Re-entrancy is blocked at the call site by checking
+   * `voice.debugCaptureSession`.
+   *
+   * On success/cancel/error the session removes itself from this Voice
+   * instance and runs any deferred applyMicConstraints exactly once.
+   */
+  async armDebugCapture(durationSec = 30): Promise<DebugCaptureSession> {
+    const ctx = this.#inputGateCtx;
+    const rawSrc = this.#tapRawSrc;
+    const bandpass = this.#tapBandpass;
+    const gate = this.#inputGateNode;
+    const agc = this.#agcNode;
+    console.log("[Voice/diag] armDebugCapture:", {
+      ctxState: ctx?.state,
+      ctxCurrentTime: ctx?.currentTime,
+      hasRawSrc: !!rawSrc,
+      hasBandpass: !!bandpass,
+      hasGate: !!gate,
+      hasAgc: !!agc,
+      hasDest: !!this.#inputGateDest,
+      rawMicTrackId: this.#rawMicTrack?.id,
+      rawMicTrackReady: this.#rawMicTrack?.readyState,
+    });
+
+    const [state, setState] = createSignal<DebugCaptureState>("idle");
+    const [remainingMs, setRemainingMs] = createSignal(durationSec * 1000);
+    const [error, setError] = createSignal<string | null>(null);
+    const [outputPath, setOutputPath] = createSignal<string | null>(null);
+
+    const fail = (msg: string): DebugCaptureSession => {
+      setError(msg);
+      setState("error");
+      return { state, remainingMs, error, outputPath, cancel: () => {} };
+    };
+
+    if (!ctx || !rawSrc || !bandpass || !gate) {
+      return fail("Join a voice channel first.");
+    }
+    if (this.#captureSession) {
+      return fail("A capture is already in progress.");
+    }
+    if (!window.native?.debugCapture) {
+      return fail("Desktop only — file system access required.");
+    }
+
+    // Register the recorder worklet on the input-gate AudioContext. The
+    // helper is idempotent per-context, so subsequent captures skip the work.
+    try {
+      await ensureCaptureRecorderRegistered(ctx);
+    } catch (e) {
+      return fail(`Failed to load capture worklet: ${(e as Error).message}`);
+    }
+
+    // Capture a snapshot of inputs for the session closure.
+    const sampleRate = ctx.sampleRate;
+    const totalFrames = Math.round(sampleRate * durationSec);
+    const settings = this.#settings;
+
+    // Resolve DF3 output for stage 5. Two paths:
+    //   • A2 active: DF3 is an AudioWorkletNode in our context (#df3Node).
+    //     Tap it directly — no MediaStream round-trip. Under A2 the DF3
+    //     output is upstream of gate+AGC, so the "transmitted" semantics
+    //     of stage 5 shift slightly (final transmitted audio is stage 4 /
+    //     post-AGC). metadata.a2Active records this so downstream
+    //     analysis can branch.
+    //   • A2 disabled (legacy): DF3 is a LiveKit TrackProcessor — find its
+    //     processedTrack and build a MediaStreamSource on it.
+    // When neither path yields a source, stage 5 is omitted entirely so
+    // bundle filenames never lie about what they contain.
+    const a2Active = !isStoatFixDisabled("disableA2Architecture");
+    const room = this.room();
+    const micPub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+    const dfn3Track = a2Active
+      ? null
+      : (((micPub?.track as unknown as { processor?: { processedTrack?: MediaStreamTrack } })
+          ?.processor?.processedTrack) ?? null);
+    const df3WorkletNode = a2Active ? this.#df3Node : null;
+
+    type RecorderEntry = {
+      filename: string;
+      label: string;
+      node: AudioWorkletNode;
+      // Source node we connect from. For tap 04 we additionally hold the
+      // MediaStreamAudioSourceNode so we can disconnect it on cleanup.
+      sourceForCleanup?: AudioNode;
+      buffer: Float32Array | null;
+      framesRecorded: number;
+      done: Promise<void>;
+    };
+
+    const recorders: RecorderEntry[] = [];
+    let canceled = false;
+
+    const buildRecorder = (
+      filename: string,
+      label: string,
+      source: AudioNode,
+      ownsSource: boolean,
+    ): RecorderEntry => {
+      const node = new AudioWorkletNode(ctx, "stoat-capture-recorder", {
+        numberOfInputs: 1,
+        numberOfOutputs: 0,
+        processorOptions: { capacity: totalFrames },
+      });
+      const entry: RecorderEntry = {
+        filename,
+        label,
+        node,
+        sourceForCleanup: ownsSource ? source : undefined,
+        buffer: null,
+        framesRecorded: 0,
+        done: new Promise<void>((resolve) => {
+          node.port.onmessage = (ev) => {
+            const data = ev.data as { type: string; buffer?: Float32Array; framesRecorded?: number };
+            if (data?.type === "done") {
+              entry.buffer = data.buffer ?? null;
+              entry.framesRecorded = data.framesRecorded ?? 0;
+              resolve();
+            }
+          };
+        }),
+      };
+      // Bind the recorder to the audio path. The connect() takes effect at
+      // the next render quantum; calling these synchronously across all four
+      // recorders puts them on the same boundary.
+      source.connect(node);
+      return entry;
+    };
+
+    // Atomic wiring block — all connect() calls happen in the same JS tick
+    // so they share a render-quantum boundary.
+    const audioContextStartTime = ctx.currentTime;
+    try {
+      // [STOAT-AGC] captureVersion 2 layout — file numbers reflect signal
+      // flow order. AGC sits between gate and DF3 so it gets slot 04,
+      // pushing DF3 to 05. Bundle readers should branch on captureVersion.
+      // [Voice/H1] captureVersion 3 keeps the same file layout but adds
+      // metadata.loudness keyed by the leading "NN" of each filename.
+      recorders.push(buildRecorder("01_raw_mic.wav", "raw mic", rawSrc, false));
+      recorders.push(buildRecorder("02_post_bandpass.wav", "post bandpass", bandpass, false));
+      recorders.push(buildRecorder("03_post_gate.wav", "post gate", gate, false));
+      // Tap the AGC worklet's output even when bypassed — when disabled the
+      // node passes audio through a 5 ms delay line, so 04_post_agc lets you
+      // confirm the bypass is clean and isolate gain from DF3's contribution.
+      if (agc) {
+        recorders.push(buildRecorder("04_post_agc.wav", "post AGC", agc, false));
+      }
+      if (df3WorkletNode) {
+        // [Voice/A2] Direct tap from the DF3 worklet output. The node
+        // outputs continuously regardless of LiveKit publish state, so
+        // the recorder sees samples from t=0 of this capture window.
+        recorders.push(buildRecorder("05_post_dfn3.wav", "post DF3", df3WorkletNode, false));
+      } else if (dfn3Track) {
+        const df3Source = ctx.createMediaStreamSource(new MediaStream([dfn3Track]));
+        recorders.push(buildRecorder("05_post_dfn3.wav", "post DF3", df3Source, true));
+      }
+    } catch (e) {
+      // Tear down anything we managed to wire up before the throw.
+      for (const r of recorders) {
+        try { r.node.disconnect(); } catch { /* ignore */ }
+        if (r.sourceForCleanup) try { r.sourceForCleanup.disconnect(); } catch { /* ignore */ }
+      }
+      return fail(`Failed to start capture: ${(e as Error).message}`);
+    }
+
+    setState("recording");
+
+    // Countdown ticker for UI; not load-bearing for the recording itself
+    // (the worklet self-finalises when the buffer is full).
+    const startedAt = performance.now();
+    const tick = setInterval(() => {
+      const elapsed = performance.now() - startedAt;
+      const left = Math.max(0, durationSec * 1000 - elapsed);
+      setRemainingMs(left);
+      if (left <= 0) clearInterval(tick);
+    }, 100);
+
+    const teardown = () => {
+      clearInterval(tick);
+      for (const r of recorders) {
+        try { r.node.port.onmessage = null; } catch { /* ignore */ }
+        try { r.node.disconnect(); } catch { /* ignore */ }
+        if (r.sourceForCleanup) try { r.sourceForCleanup.disconnect(); } catch { /* ignore */ }
+      }
+    };
+
+    const finalise = async (allDone: boolean) => {
+      if (canceled || !allDone) {
+        teardown();
+        if (this.#captureSession === sessionRef) {
+          this.#captureSession = null;
+          this.#runDeferredMicConstraints();
+        }
+        return;
+      }
+      try {
+        setState("encoding");
+        // [Voice/H1] Compute loudness BEFORE we encode/null the buffers.
+        // Each entry is keyed by the leading "NN" of the filename so the
+        // mapping survives WAV reencoding and metadata-only consumers.
+        const loudness: Record<string, { lufsIntegrated: number; truePeakDbfs: number }> = {};
+        for (const r of recorders) {
+          if (!r.buffer) continue;
+          const m = measureLoudness(r.buffer);
+          loudness[r.filename.slice(0, 2)] = m;
+        }
+
+        const wavs = recorders
+          .filter((r) => r.buffer)
+          .map((r) => ({
+            name: r.filename,
+            buffer: encodeWavMono16(r.buffer!, sampleRate),
+          }));
+
+        const ts = new Date();
+        const subfolder = `stoat-capture-${formatBundleTimestamp(ts)}`;
+        const metadata: CaptureMetadata = {
+          captureVersion: 3,
+          timestampIso: ts.toISOString(),
+          audioContextStartTime,
+          captureDurationSec: durationSec,
+          framesRecorded: Object.fromEntries(
+            recorders.map((r) => [r.filename.slice(0, 2), r.framesRecorded]),
+          ),
+          sampleRate,
+          channels: 1,
+          bitDepth: 16,
+          build: STOAT_BUILD,
+          dfn3Active: !!(df3WorkletNode || dfn3Track),
+          // [Voice/A2] Architecture flag for downstream analysis. When
+          // true, stages 03/04/05 in the bundle mean: post-gate where DF3
+          // already ran upstream / post-AGC = final transmitted /
+          // post-DF3-pre-gate (upstream tap). When false (legacy), stage
+          // 05 is post-gate-post-AGC-post-DF3 i.e. final transmitted.
+          a2Active,
+          // Empirical: gate→DF3 cross-correlation peaks at -72 ms in
+          // captured bundles. The model spec claims 20 ms but the wrapper
+          // adds ~52 ms of buffering. Tracked by StoatData-0dv follow-up.
+          dfn3LatencyMs: 72,
+          settings: {
+            inputSensitivity: settings.inputSensitivity,
+            inputSensitivityAuto: settings.inputSensitivityAuto,
+            useSileroVad: settings.useSileroVad,
+            noiseSupression: settings.noiseSupression,
+            noiseSupressionLevel: settings.noiseSupressionLevel,
+            echoCancellation: settings.echoCancellation,
+            chromeAgcEnabled: settings.chromeAgcEnabled,
+            useStoatAgc: settings.useStoatAgc,
+            stoatAgcTargetDbfs: settings.stoatAgcTargetDbfs,
+            preferredAudioInputDevice: settings.preferredAudioInputDevice,
+            pushToTalkEnabled: settings.pushToTalkEnabled,
+          },
+          gateConstants: {
+            holdFrames: 30,
+            attack: 0.3,
+            release: 0.03,
+            closeRatioDb: -10,
+          },
+          files: wavs.map((w) => w.name),
+          loudness,
+        };
+
+        // Free recorder buffers before IPC ships ArrayBuffers to main.
+        for (const r of recorders) r.buffer = null;
+
+        setState("writing");
+        const pick = await window.native!.debugCapture!.pickDir();
+        if (pick.canceled || !pick.path) {
+          setState("canceled");
+          teardown();
+          if (this.#captureSession === sessionRef) {
+            this.#captureSession = null;
+            this.#runDeferredMicConstraints();
+          }
+          return;
+        }
+        const result = await window.native!.debugCapture!.writeBundle({
+          parentDir: pick.path,
+          subfolderName: subfolder,
+          files: wavs,
+          metadata: metadata as unknown as Record<string, unknown>,
+        });
+        setOutputPath(result.path);
+        setState("done");
+      } catch (e) {
+        setError((e as Error).message ?? String(e));
+        setState("error");
+      } finally {
+        teardown();
+        if (this.#captureSession === sessionRef) {
+          this.#captureSession = null;
+          this.#runDeferredMicConstraints();
+        }
+      }
+    };
+
+    // Wait for all recorders to finalise (buffer-full self-stop) OR a manual
+    // stop signalled by cancel(). Each .done is constructed by us and never
+    // rejects, but the .catch is defensive.
+    Promise.all(recorders.map((r) => r.done))
+      .then(() => { if (!canceled) void finalise(true); })
+      .catch(() => { if (!canceled) void finalise(false); });
+
+    const sessionRef: DebugCaptureSession = {
+      state,
+      remainingMs,
+      error,
+      outputPath,
+      cancel: () => {
+        if (canceled) return;
+        canceled = true;
+        // Tell each worklet to stop without producing more output.
+        for (const r of recorders) {
+          try { r.node.port.postMessage({ type: "stop" }); } catch { /* ignore */ }
+        }
+        setState("canceled");
+        void finalise(false);
+      },
+    };
+    this.#captureSession = sessionRef;
+    return sessionRef;
+  }
+
+  /**
+   * [VOICE-DEBUG-CAPTURE] Run a single deferred applyMicConstraints if one
+   * was queued during a capture. Idempotent.
+   */
+  #runDeferredMicConstraints(): void {
+    if (this.#micConstraintsDeferredDuringCapture) {
+      this.#micConstraintsDeferredDuringCapture = false;
+      void this.applyMicConstraints();
+    }
+  }
+
+  /**
+   * [Voice/H2] Arm the dev-only A/B harness. Records two 10-second passes
+   * from the stage 5 tap (post-DF3 when active, post-AGC when DF3 is off),
+   * randomises blind labels, and serves them back to the UI for playback.
+   *
+   * Settings changes between passes are intentional (they are the
+   * comparison variable). The harness defers `applyMicConstraints` only
+   * while a pass is actively recording, so the inter-pass tweak the user
+   * makes does propagate before pass B begins.
+   *
+   * Buffers stay in memory — no disk write, no metadata bundle. They are
+   * released on session end, on the next harness arm, or on voice
+   * disconnect / input-gate teardown.
+   *
+   * Kill-switch: `localStorage.setItem("stoat.disableABHarness", "1")` —
+   * checked at the UI layer; this method itself does not gate.
+   */
+  armABHarness(durationSec = 10): ABHarnessSession {
+    const [state, setState] = createSignal<ABHarnessState>("idle");
+    const [remainingMs, setRemainingMs] = createSignal(0);
+    const [error, setError] = createSignal<string | null>(null);
+    const [currentPass, setCurrentPass] = createSignal<ABHarnessPass | null>(null);
+    const [tapSource, setTapSource] = createSignal<"post-dfn3" | "post-agc" | null>(null);
+    const [labeling, setLabeling] = createSignal<ABHarnessLabeling | null>(null);
+    const [playing, setPlaying] = createSignal<ABHarnessClip | null>(null);
+    const [revealed, setRevealed] = createSignal(false);
+    const [vote, setVote] = createSignal<ABHarnessClip | null>(null);
+
+    let passABuffer: Float32Array | null = null;
+    let passBBuffer: Float32Array | null = null;
+    let activeRecorder: AudioWorkletNode | null = null;
+    let activeSource: AudioNode | null = null;
+    let activeSourceOwned = false;
+    let activeTick: ReturnType<typeof setInterval> | null = null;
+    let activePlayback: AudioBufferSourceNode | null = null;
+    let sessionSampleRate = 48000;
+    let cancelled = false;
+
+    const fail = (msg: string) => {
+      setError(msg);
+      setState("error");
+    };
+
+    const teardownActiveRecording = () => {
+      if (activeTick) {
+        clearInterval(activeTick);
+        activeTick = null;
+      }
+      if (activeRecorder) {
+        try { activeRecorder.port.onmessage = null; } catch { /* ignore */ }
+        try { activeRecorder.disconnect(); } catch { /* ignore */ }
+        activeRecorder = null;
+      }
+      if (activeSourceOwned && activeSource) {
+        try { activeSource.disconnect(); } catch { /* ignore */ }
+      }
+      activeSource = null;
+      activeSourceOwned = false;
+    };
+
+    const teardownPlayback = () => {
+      if (activePlayback) {
+        try { activePlayback.stop(); } catch { /* ignore */ }
+        try { activePlayback.disconnect(); } catch { /* ignore */ }
+        activePlayback = null;
+      }
+      setPlaying(null);
+    };
+
+    /**
+     * Resolve the latest stage-5 source for the current pass and run the
+     * recorder for `durationSec`. Each pass re-resolves so a settings
+     * change between passes is reflected.
+     */
+    const recordPass = async (pass: ABHarnessPass): Promise<Float32Array | null> => {
+      const ctx = this.#inputGateCtx;
+      if (!ctx) {
+        fail("Join a voice channel first.");
+        return null;
+      }
+      try {
+        await ensureCaptureRecorderRegistered(ctx);
+      } catch (e) {
+        fail(`Failed to load capture worklet: ${(e as Error).message}`);
+        return null;
+      }
+
+      // Resolve the "what listeners hear" tap. The harness exists to
+      // compare perceived output, so it always taps the LAST stage of the
+      // outgoing graph rather than a specific algorithm's output.
+      //   • A2 active: graph ends src→HPF→DF3→gate→AGC→dest. AGC node
+      //     output IS what gets published (post-DF3, post-gate, post-AGC).
+      //   • A2 disabled + NS on (legacy): DF3 runs as a LiveKit processor
+      //     downstream of AGC; tap its processedTrack.
+      //   • A2 disabled + NS off: AGC node is the final stage (no DF3
+      //     wrap). Same as A2-active in practice.
+      const a2Active = !isStoatFixDisabled("disableA2Architecture");
+      const room = this.room();
+      const micPub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+      const dfn3Track = a2Active
+        ? null
+        : (((micPub?.track as unknown as { processor?: { processedTrack?: MediaStreamTrack } })
+            ?.processor?.processedTrack) ?? null);
+
+      let source: AudioNode;
+      let ownsSource = false;
+      if (dfn3Track) {
+        source = ctx.createMediaStreamSource(new MediaStream([dfn3Track]));
+        ownsSource = true;
+        setTapSource("post-dfn3");
+      } else if (this.#agcNode) {
+        source = this.#agcNode;
+        setTapSource("post-agc");
+      } else {
+        fail("Neither DF3 nor AGC node is available — try rejoining the channel.");
+        return null;
+      }
+
+      const sampleRate = ctx.sampleRate;
+      sessionSampleRate = sampleRate;
+      const totalFrames = Math.round(sampleRate * durationSec);
+      const node = new AudioWorkletNode(ctx, "stoat-capture-recorder", {
+        numberOfInputs: 1,
+        numberOfOutputs: 0,
+        processorOptions: { capacity: totalFrames },
+      });
+
+      const done = new Promise<Float32Array | null>((resolve) => {
+        node.port.onmessage = (ev) => {
+          const data = ev.data as { type: string; buffer?: Float32Array };
+          if (data?.type === "done") {
+            resolve(data.buffer ?? null);
+          }
+        };
+      });
+
+      activeRecorder = node;
+      activeSource = source;
+      activeSourceOwned = ownsSource;
+
+      source.connect(node);
+
+      setCurrentPass(pass);
+      setState(pass === "A" ? "recording-a" : "recording-b");
+      const startedAt = performance.now();
+      setRemainingMs(durationSec * 1000);
+      activeTick = setInterval(() => {
+        const elapsed = performance.now() - startedAt;
+        const left = Math.max(0, durationSec * 1000 - elapsed);
+        setRemainingMs(left);
+        if (left <= 0 && activeTick) {
+          clearInterval(activeTick);
+          activeTick = null;
+        }
+      }, 100);
+
+      const buffer = await done;
+      teardownActiveRecording();
+      setCurrentPass(null);
+      setRemainingMs(0);
+      if (cancelled) return null;
+      return buffer;
+    };
+
+    const startPassA = async () => {
+      if (cancelled) return;
+      if (this.#captureSession) {
+        fail("A 30s debug capture is already in progress — cancel it first.");
+        return;
+      }
+      const cur = state();
+      if (cur !== "idle" && cur !== "error" && cur !== "revealed" && cur !== "compare") {
+        return; // recording in progress or unreachable state — ignore
+      }
+      passABuffer = null;
+      passBBuffer = null;
+      setLabeling(null);
+      setRevealed(false);
+      setVote(null);
+      setError(null);
+      teardownPlayback();
+
+      const buf = await recordPass("A");
+      if (cancelled) return;
+      if (!buf) return; // fail() was called
+      passABuffer = buf;
+      setState("ready-b");
+      // Run any deferred mic-constraints rebuild that piled up while we
+      // were recording (typically none — settings changes are between
+      // passes, not during).
+      this.#runDeferredMicConstraints();
+    };
+
+    const startPassB = async () => {
+      if (cancelled) return;
+      if (state() !== "ready-b") return;
+      if (!passABuffer) {
+        fail("Pass A buffer was lost — restart the harness.");
+        return;
+      }
+      const buf = await recordPass("B");
+      if (cancelled) return;
+      if (!buf) return;
+      passBBuffer = buf;
+
+      // Crypto-random label assignment. coin=0 → clip1=A, clip2=B.
+      const coin = cryptoCoinFlip();
+      const map: ABHarnessLabeling =
+        coin === 0
+          ? { clip1: "A", clip2: "B" }
+          : { clip1: "B", clip2: "A" };
+      setLabeling(map);
+      setState("compare");
+      this.#runDeferredMicConstraints();
+    };
+
+    /**
+     * Decode an in-memory Float32 buffer into an AudioBuffer on the
+     * input-gate context and play it through ctx.destination. Reuses the
+     * input-gate context so we don't pile up extra AudioContexts; output
+     * routes through default device regardless of input-gate routing.
+     */
+    const playClip = (clip: ABHarnessClip) => {
+      if (state() !== "compare" && state() !== "revealed") return;
+      const map = labeling();
+      if (!map) return;
+      const buf = map[clip] === "A" ? passABuffer : passBBuffer;
+      const ctx = this.#inputGateCtx;
+      if (!buf || !ctx) return;
+      teardownPlayback();
+
+      const ab = ctx.createBuffer(1, buf.length, sessionSampleRate);
+      ab.getChannelData(0).set(buf);
+      const node = ctx.createBufferSource();
+      node.buffer = ab;
+      node.connect(ctx.destination);
+      node.onended = () => {
+        if (activePlayback === node) {
+          activePlayback = null;
+          setPlaying(null);
+        }
+      };
+      activePlayback = node;
+      setPlaying(clip);
+      try {
+        node.start();
+      } catch (e) {
+        teardownPlayback();
+        fail(`Playback failed: ${(e as Error).message}`);
+      }
+    };
+
+    const stopPlayback = () => {
+      teardownPlayback();
+    };
+
+    const reveal = () => {
+      if (state() !== "compare") return;
+      const map = labeling();
+      if (!map) return;
+      console.log(
+        `[Voice/H2] reveal: clip1=Pass ${map.clip1}, clip2=Pass ${map.clip2}, vote=${vote() ?? "none"}`,
+      );
+      setState("revealed");
+      setRevealed(true);
+    };
+
+    const castVote = (clip: ABHarnessClip) => {
+      if (state() !== "compare" && state() !== "revealed") return;
+      setVote(clip);
+      const map = labeling();
+      if (map) {
+        console.log(
+          `[Voice/H2] vote: clip ${clip} (Pass ${map[clip]}) preferred — revealed=${revealed()}`,
+        );
+      }
+    };
+
+    const cancel = () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (activeRecorder) {
+        try { activeRecorder.port.postMessage({ type: "stop" }); } catch { /* ignore */ }
+      }
+      teardownActiveRecording();
+      teardownPlayback();
+      passABuffer = null;
+      passBBuffer = null;
+      setLabeling(null);
+      setRevealed(false);
+      setVote(null);
+      setCurrentPass(null);
+      setRemainingMs(0);
+      if (state() !== "error") setState("idle");
+      if (this.#abHarnessSession === sessionRef) {
+        this.#abHarnessSession = null;
+        this.#runDeferredMicConstraints();
+      }
+    };
+
+    const sessionRef: ABHarnessSession = {
+      state,
+      remainingMs,
+      error,
+      currentPass,
+      tapSource,
+      labeling,
+      playing,
+      revealed,
+      vote,
+      startPassA,
+      startPassB,
+      playClip,
+      stopPlayback,
+      reveal,
+      castVote,
+      cancel,
+    };
+    this.#abHarnessSession = sessionRef;
+    return sessionRef;
+  }
+
 
   /**
    * Measure ambient RMS from the raw mic track for 2 seconds.
@@ -1790,26 +3520,27 @@ export function VoiceContext(props: { children: JSX.Element }) {
       });
     }
 
-    // Voice diagnostic helper: window.stoatDiag() in browser console
-    (window as any).stoatDiag = async () => {
+    // Voice diagnostic helper: window.stoatDiag() in browser console.
+    // [Voice/H3] history() and clearHistory() expose the rolling ring buffer
+    // populated by every printVoiceStats invocation.
+    const stoatDiagFn = async () => {
       const room = voice.room();
       if (!room) {
         console.log("[Voice Diagnostics] Not connected to a voice channel");
         return;
       }
-      const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
-      const df3Active = !!(micPub?.track as LocalAudioTrack | undefined)?.processor;
-      await printVoiceStats(room, df3Active, voice.rawMicTrack);
+      await printVoiceStats(room, voice.isDf3Active(), voice.rawMicTrack, voice.getLevelerStats());
     };
-    console.log("[Voice] 🔍 Type window.stoatDiag() in the console to print voice stats");
+    (stoatDiagFn as unknown as { history: typeof getVoiceDiagHistory }).history = getVoiceDiagHistory;
+    (stoatDiagFn as unknown as { clearHistory: typeof clearVoiceDiagHistory }).clearHistory = clearVoiceDiagHistory;
+    (window as any).stoatDiag = stoatDiagFn;
+    console.log("[Voice] 🔍 Type window.stoatDiag() to print voice stats, window.stoatDiag.history() for the rolling buffer");
 
     // Auto-print stats every 30s while connected
     const statsInterval = setInterval(async () => {
       const room = voice.room();
       if (room && voice.state() === "CONNECTED") {
-        const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
-        const df3Active = !!(micPub?.track as LocalAudioTrack | undefined)?.processor;
-        await printVoiceStats(room, df3Active, voice.rawMicTrack);
+        await printVoiceStats(room, voice.isDf3Active(), voice.rawMicTrack, voice.getLevelerStats());
       }
     }, 30_000);
 
@@ -1871,12 +3602,55 @@ export function VoiceContext(props: { children: JSX.Element }) {
     voice.setSileroEnabled(state.voice.useSileroVad);
   });
 
-  // live-update mic constraints when noise suppression / echo cancellation changes
+  // live-update mic constraints when noise suppression / echo cancellation
+  // / Chrome AGC changes (all three require restartTrack on the publication)
+  // [Voice/J7] Also re-acquires the track when the user picks a different
+  // mic in settings mid-call — #applyInputGate already reads
+  // preferredAudioInputDevice inside its getUserMedia call, it just wasn't
+  // being triggered. Kill switch (off by default): localStorage
+  // stoat.disableMidCallDeviceChange = "1" — falls back to legacy behavior
+  // where the device only takes effect on next connect.
+  const enableMidCallDeviceChange = !isStoatFixDisabled("disableMidCallDeviceChange");
   createEffect(() => {
     state.voice.noiseSupression;
     state.voice.noiseSupressionLevel;
     state.voice.echoCancellation;
+    state.voice.chromeAgcEnabled;
+    if (enableMidCallDeviceChange) {
+      state.voice.preferredAudioInputDevice;
+    }
     voice.applyMicConstraints();
+  });
+
+  // [Voice/J6] When PTT is toggled on mid-call, mute the mic so the gating
+  // contract actually takes effect. The initial-connect path at line ~1188
+  // handles first-join already; this createEffect only fires on subsequent
+  // transitions. Kill switch (off by default): localStorage
+  // stoat.disablePttMidCallMute = "1".
+  // We capture the value on mount so the first run of the effect is a
+  // baseline read, not a transition (no spurious mute on mount).
+  let prevPttEnabled = state.voice.pushToTalkEnabled;
+  const enablePttMidCallMute = !isStoatFixDisabled("disablePttMidCallMute");
+  createEffect(() => {
+    const pttEnabled = state.voice.pushToTalkEnabled;
+    if (pttEnabled !== prevPttEnabled && enablePttMidCallMute && voice.room()) {
+      if (pttEnabled) {
+        // Toggled on mid-call — gate transmission until the user presses PTT.
+        void voice.setMute(false);
+      }
+      // Toggling off mid-call: leave mic in current state. If PTT was being
+      // held, the user can release; if not, mic stays muted until manually
+      // unmuted. No automatic unmute (avoids surprise open-mic).
+    }
+    prevPttEnabled = pttEnabled;
+  });
+
+  // [STOAT-AGC] Live-toggle the AGC worklet without restarting the track.
+  createEffect(() => {
+    voice.updateAgcConfig({
+      enabled: state.voice.useStoatAgc,
+      targetDbfs: state.voice.stoatAgcTargetDbfs,
+    });
   });
 
   // Listen for per-process audio window selection from Electron

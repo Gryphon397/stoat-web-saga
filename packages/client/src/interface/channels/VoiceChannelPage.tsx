@@ -37,9 +37,14 @@ const PLEX_PROXY = (import.meta.env.VITE_PLEX_PROXY_URL as string) ?? "";
 // =============================================================================
 
 export function VoiceChannelContent(props: ChannelPageProps) {
+  const voice = useVoice();
+  const inThisChannel = () => voice.channel()?.id === props.channel.id;
+
   return (
     <PageGrid>
-      <PlexSection channelId={props.channel.id} />
+      <Show when={inThisChannel()}>
+        <PlexSection channelId={props.channel.id} />
+      </Show>
       <ScreenshareArea>
         <InRoom channelId={props.channel.id}>
           <ScreenshareContent />
@@ -71,6 +76,7 @@ type JukeboxState = {
 
 type PlexTrack = {
   key: string;
+  ratingKey?: string;
   title: string;
   grandparentTitle?: string;
   parentTitle?: string;
@@ -105,7 +111,8 @@ function PlexSection(props: { channelId: string }) {
   let _latestSentAt = 0;
 
   const [volume, setVolume] = createSignal(0.5);
-  createEffect(() => { if (audioRef) audioRef.volume = volume() * volume(); });
+  const [muted, setMuted] = createSignal(false);
+  createEffect(() => { if (audioRef) audioRef.volume = muted() ? 0 : volume() * volume(); });
 
   // Memo so the tick interval only restarts on actual play/pause transitions,
   // not on every unrelated jukebox field update.
@@ -261,6 +268,20 @@ function PlexSection(props: { channelId: string }) {
     await updateJukebox({ queue });
   }
 
+  async function startRadio(track: PlexTrack) {
+    if (!track.ratingKey) return;
+    try {
+      const r = await fetch(`${PLEX_PROXY}/plex/radio/${track.ratingKey}?limit=25`);
+      if (!r.ok) return;
+      const data = await r.json();
+      const tracks: PlexTrack[] = (data.Metadata ?? []).filter(
+        (t: PlexTrack) => t.Media?.[0]?.Part?.[0]?.key
+      );
+      if (tracks.length === 0) return;
+      await updateJukebox({ queue: [...(jukebox().queue ?? []), ...tracks] });
+    } catch { /* ignore */ }
+  }
+
   const duration = () => (jukebox().duration ?? 0) / 1000;
   const currentPosition = createMemo(() => {
     tick();
@@ -361,8 +382,12 @@ function PlexSection(props: { channelId: string }) {
           </CollapsedTrackInfo>
 
           <PlayerControls compact>
-            <ControlButton title="Shuffle" disabled>
-              <Symbol size={18}>shuffle</Symbol>
+            <ControlButton
+              title="Start radio from current track"
+              disabled={!PLEX_PROXY || !jukebox().currentTrack?.ratingKey}
+              onClick={() => jukebox().currentTrack && startRadio(jukebox().currentTrack!)}
+            >
+              <Symbol size={18}>radio</Symbol>
             </ControlButton>
             <ControlButton
               title="Previous"
@@ -392,7 +417,12 @@ function PlexSection(props: { channelId: string }) {
           </PlayerControls>
 
           <CollapsedVolumeRow>
-            <Symbol size={14}>volume_up</Symbol>
+            <MuteButton
+              title={muted() ? "Unmute music" : "Mute music"}
+              onClick={(e) => { e.stopPropagation(); setMuted((m) => !m); }}
+            >
+              <Symbol size={14}>{muted() ? "volume_off" : "volume_up"}</Symbol>
+            </MuteButton>
             <CollapsedVolumeSlider
               type="range"
               min={0}
@@ -497,11 +527,38 @@ function PlexSection(props: { channelId: string }) {
               </PlayerPanel>
 
               <QueuePanel>
-                <QueueHeader>Queue</QueueHeader>
+                <QueueHeaderRow>
+                  <QueueHeader>Queue</QueueHeader>
+                  <Show when={(jukebox().queue ?? []).length > 0}>
+                    <QueueClearButton
+                      title="Clear queue"
+                      onClick={() => updateJukebox({ queue: [] })}
+                    >
+                      Clear
+                    </QueueClearButton>
+                  </Show>
+                </QueueHeaderRow>
                 <QueueList>
+                  <Show when={jukebox().currentTrack}>
+                    <QueueItem nowPlaying>
+                      <QueueItemInfo>
+                        <QueueItemTitle>{jukebox().currentTrack!.title}</QueueItemTitle>
+                        <QueueItemMeta>
+                          {[jukebox().currentTrack!.grandparentTitle, jukebox().currentTrack!.parentTitle]
+                            .filter(Boolean)
+                            .join(" — ")}
+                        </QueueItemMeta>
+                      </QueueItemInfo>
+                      <QueueNowPlayingBadge>Now Playing</QueueNowPlayingBadge>
+                    </QueueItem>
+                  </Show>
                   <Show
                     when={(jukebox().queue ?? []).length > 0}
-                    fallback={<QueueEmpty>No tracks queued</QueueEmpty>}
+                    fallback={
+                      <Show when={!jukebox().currentTrack}>
+                        <QueueEmpty>No tracks queued</QueueEmpty>
+                      </Show>
+                    }
                   >
                     <For each={jukebox().queue ?? []}>
                       {(track, i) => (
@@ -1046,6 +1103,22 @@ const CollapsedVolumeSlider = styled("input", {
   },
 });
 
+const MuteButton = styled("button", {
+  base: {
+    display: "flex",
+    alignItems: "center",
+    background: "none",
+    border: "none",
+    padding: "0",
+    cursor: "pointer",
+    color: "var(--md-sys-color-on-surface-variant)",
+    transition: "color var(--transitions-fast)",
+    _hover: {
+      color: "var(--md-sys-color-on-surface)",
+    },
+  },
+});
+
 const CollapsedActions = styled("div", {
   base: {
     flexShrink: 0,
@@ -1137,6 +1210,16 @@ const QueuePanel = styled("div", {
   },
 });
 
+const QueueHeaderRow = styled("div", {
+  base: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexShrink: 0,
+    paddingBottom: "var(--gap-xs)",
+  },
+});
+
 const QueueHeader = styled("div", {
   base: {
     fontSize: "11px",
@@ -1144,8 +1227,18 @@ const QueueHeader = styled("div", {
     color: "var(--md-sys-color-on-surface-variant)",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    flexShrink: 0,
-    paddingBottom: "var(--gap-xs)",
+  },
+});
+
+const QueueClearButton = styled("button", {
+  base: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    fontSize: "11px",
+    color: "var(--md-sys-color-on-surface-variant)",
+    padding: "0 4px",
+    _hover: { color: "var(--md-sys-color-error)" },
   },
 });
 
@@ -1176,6 +1269,27 @@ const QueueItem = styled("div", {
     padding: "4px var(--gap-xs)",
     borderRadius: "var(--borderRadius-sm)",
     _hover: { background: "var(--md-sys-color-surface-container)" },
+  },
+  variants: {
+    nowPlaying: {
+      true: {
+        background: "var(--md-sys-color-surface-container)",
+        borderBottom: "1px solid var(--md-sys-color-outline-variant)",
+        marginBottom: "4px",
+        paddingBottom: "8px",
+      },
+    },
+  },
+});
+
+const QueueNowPlayingBadge = styled("span", {
+  base: {
+    fontSize: "10px",
+    fontWeight: "600",
+    color: "var(--md-sys-color-primary)",
+    flexShrink: 0,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
   },
 });
 

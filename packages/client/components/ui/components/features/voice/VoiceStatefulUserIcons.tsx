@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 
 import { useLingui } from "@lingui-solid/solid/macro";
 
+import { useUser } from "@revolt/client";
 import { useState } from "@revolt/state";
 
 import { Symbol } from "../../utils/Symbol";
@@ -18,9 +19,13 @@ export function VoiceStatefulUserIcons(props: {
 }) {
   const { t } = useLingui();
   const state = useState();
+  const currentUser = useUser();
 
   const isMuted = () =>
     state.voice.getUserMuted(props.userId) ? "by-user" : props.muted || false;
+
+  const isDeafened = () =>
+    props.userId === currentUser()?.id ? state.voice.deafen : (props.deafened || false);
 
   return (
     <>
@@ -43,7 +48,7 @@ export function VoiceStatefulUserIcons(props: {
           mic_off
         </Symbol>
       </Show>
-      <Show when={props.deafened}>
+      <Show when={isDeafened()}>
         <Symbol size={16}>headset_off</Symbol>
       </Show>
       <Show when={props.camera}>

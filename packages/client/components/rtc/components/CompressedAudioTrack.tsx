@@ -49,6 +49,11 @@ export function CompressedAudioTrack(props: CompressedAudioTrackProps) {
   let compressor: DynamicsCompressorNode | undefined;
   let gain: GainNode | undefined;
   let attachedTrack: RemoteAudioTrack | undefined;
+  // Chromium bug: MediaStreamAudioSourceNode produces zero samples for remote
+  // WebRTC tracks unless the same MediaStream is also attached to an
+  // HTMLMediaElement. The element below is muted (audio plays through Web
+  // Audio's destination), but its presence keeps the WebRTC pipeline live.
+  let keepaliveEl: HTMLAudioElement | undefined;
 
   const applySinkId = (ctx: AudioContext, deviceId?: string) => {
     if (!deviceId || !("setSinkId" in AudioContext.prototype)) return;
@@ -65,7 +70,15 @@ export function CompressedAudioTrack(props: CompressedAudioTrackProps) {
     void ctx.resume();
     applySinkId(ctx, props.outputDeviceId);
 
-    source = ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+    const stream = new MediaStream([track.mediaStreamTrack]);
+
+    keepaliveEl = document.createElement("audio");
+    keepaliveEl.autoplay = true;
+    keepaliveEl.muted = true;
+    keepaliveEl.srcObject = stream;
+    keepaliveEl.play().catch(() => { /* autoplay policy — element still primes pipeline */ });
+
+    source = ctx.createMediaStreamSource(stream);
 
     compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -24;
@@ -86,12 +99,17 @@ export function CompressedAudioTrack(props: CompressedAudioTrackProps) {
     try { source?.disconnect(); } catch { /* ignore */ }
     try { compressor?.disconnect(); } catch { /* ignore */ }
     try { gain?.disconnect(); } catch { /* ignore */ }
+    if (keepaliveEl) {
+      try { keepaliveEl.pause(); } catch { /* ignore */ }
+      keepaliveEl.srcObject = null;
+    }
     if (audioCtx) audioCtx.close().catch(() => { /* ignore */ });
     source = undefined;
     compressor = undefined;
     gain = undefined;
     audioCtx = undefined;
     attachedTrack = undefined;
+    keepaliveEl = undefined;
   };
 
   const sync = () => {

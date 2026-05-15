@@ -1,16 +1,14 @@
-import { For, JSX, Show, splitProps } from "solid-js";
+import { For, JSX, Show, createSignal, onCleanup, splitProps } from "solid-js";
 
-import { useState } from "@revolt/state";
 import {
   TrackLoop,
-  useConnectionQuality,
   useEnsureParticipant,
   useIsMuted,
   useIsSpeaking,
   useTracks,
 } from "solid-livekit-components";
 
-import { ConnectionQuality, Track } from "livekit-client";
+import { ParticipantEvent, Track } from "livekit-client";
 import { Channel, VoiceParticipant } from "stoat.js";
 import { cva } from "styled-system/css";
 import { styled } from "styled-system/jsx";
@@ -21,7 +19,6 @@ import { InRoom } from "@revolt/rtc";
 
 import { Avatar, Ripple, typography } from "../../design";
 import { Row } from "../../layout";
-import { Symbol } from "../../utils/Symbol";
 
 import { VoiceStatefulUserIcons } from "./VoiceStatefulUserIcons";
 
@@ -87,7 +84,11 @@ function ParticipantLive() {
   });
 
   const isSpeaking = useIsSpeaking(participant);
-  const quality = useConnectionQuality(participant);
+
+  const [isDeafened, setIsDeafened] = createSignal(participant.attributes?.deafened === "true");
+  const onAttrsChanged = () => setIsDeafened(participant.attributes?.deafened === "true");
+  participant.on(ParticipantEvent.AttributesChanged, onAttrsChanged);
+  onCleanup(() => participant.off(ParticipantEvent.AttributesChanged, onAttrsChanged));
 
   const screenShareTracks = useTracks(
     [{ source: Track.Source.ScreenShare, withPlaceholder: false }],
@@ -104,10 +105,9 @@ function ParticipantLive() {
       userId={participant.identity}
       speaking={isSpeaking()}
       muted={isMuted()}
-      deafened={false}
-      camera={false}
+      deafened={isDeafened()}
+      camera={participant.isCameraEnabled}
       screenshare={isScreensharing()}
-      quality={quality()}
       isLive
     />
   );
@@ -129,19 +129,6 @@ function ParticipantPreview(props: { participant: VoiceParticipant }) {
   );
 }
 
-/**
- * Component used for both variants
- */
-function qualityIcon(q: ConnectionQuality | undefined): { icon: string; color: string; label: string } | null {
-  switch (q) {
-    case ConnectionQuality.Excellent: return { icon: "signal_cellular_4_bar", color: "#4caf50", label: "Excellent connection" };
-    case ConnectionQuality.Good:      return { icon: "signal_cellular_3_bar", color: "#8bc34a", label: "Good connection" };
-    case ConnectionQuality.Poor:      return { icon: "network_check",         color: "#ff9800", label: "Poor connection" };
-    case ConnectionQuality.Lost:      return { icon: "wifi_off",              color: "#f44336", label: "Connection lost" };
-    default:                          return null;
-  }
-}
-
 function CommonUser(props: {
   userId: string;
   speaking: boolean;
@@ -149,29 +136,20 @@ function CommonUser(props: {
   deafened: boolean;
   camera: boolean;
   screenshare: boolean;
-  quality?: ConnectionQuality;
   isLive?: boolean;
 }) {
   const [iconProps, rest] = splitProps(props, [
     "muted",
     "deafened",
     "camera",
-    "screenshare",
   ]);
 
   const user = useUser(() => rest.userId);
-  const state = useState();
-  const nameplateUrl = () => state.nameplates.getNameplateUrl(rest.userId);
 
   return (
     <Show when={user().user}>
       <div
         class={previewUser({ speaking: rest.speaking })}
-        style={nameplateUrl() ? {
-          "background-image": `url(${nameplateUrl()})`,
-          "background-size": "100% 100%",
-          "background-repeat": "no-repeat",
-        } : {}}
         use:floating={{
           userCard: {
             user: user().user!,
@@ -190,18 +168,8 @@ function CommonUser(props: {
         <Avatar size={24} src={user().avatar} fallback={user().username} />{" "}
         <PreviewUsername>{user().username}</PreviewUsername>
         <Row gap="sm">
-          <Show when={iconProps.screenshare}>
+          <Show when={rest.screenshare}>
             <LiveBadge>LIVE</LiveBadge>
-          </Show>
-          <Show when={qualityIcon(rest.quality)}>
-            {(_) => {
-              const q = qualityIcon(rest.quality)!;
-              return (
-                <span title={q.label} style={{ color: q.color, display: "flex", "align-items": "center" }}>
-                  <Symbol size={14}>{q.icon}</Symbol>
-                </span>
-              );
-            }}
           </Show>
           <VoiceStatefulUserIcons {...iconProps} userId={rest.userId} />
         </Row>

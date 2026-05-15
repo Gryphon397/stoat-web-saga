@@ -12,6 +12,14 @@ export interface TypeVoice {
   echoCancellation: boolean;
   noiseSupression: boolean;
   noiseSupressionLevel: number;
+  // [STOAT-AGC] Chrome's built-in AGC (autoGainControl on getUserMedia).
+  // Default true to preserve the historic behaviour. Disable for a clean
+  // signal into the Stoat AGC worklet (or to bypass AGC entirely).
+  chromeAgcEnabled: boolean;
+  // [STOAT-AGC] Custom in-process AGC worklet — sits between gate and DF3.
+  // Default false on first ship so users can A/B against Chrome's AGC.
+  useStoatAgc: boolean;
+  stoatAgcTargetDbfs: number;
 
   inputSensitivity: number;      // gate threshold in dBFS, e.g. -60
   inputSensitivityAuto: boolean; // auto-calibrate on connect
@@ -54,6 +62,10 @@ export interface TypeVoice {
   soundScreenshareEnd: boolean;
   soundPttActivate: boolean;
   soundPttDeactivate: boolean;
+
+  // [VOICE-DEBUG-CAPTURE] Opt-in for the dev-only outgoing pipeline capture
+  // (only effective when VITE_STOAT_DEBUG_CAPTURE === "1" or import.meta.env.DEV).
+  debugCaptureEnabled: boolean;
 }
 
 /**
@@ -82,7 +94,10 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     return {
       echoCancellation: true,
       noiseSupression: true,
-      noiseSupressionLevel: 40,
+      noiseSupressionLevel: 25,
+      chromeAgcEnabled: true,
+      useStoatAgc: false,
+      stoatAgcTargetDbfs: -18,
       inputSensitivity: -60,
       inputSensitivityAuto: true,
       useSileroVad: true,
@@ -115,6 +130,7 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
       soundScreenshareEnd: true,
       soundPttActivate: true,
       soundPttDeactivate: true,
+      debugCaptureEnabled: false,
     };
   }
 
@@ -142,6 +158,18 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
 
     if (typeof input.noiseSupressionLevel === "number") {
       data.noiseSupressionLevel = Math.max(0, Math.min(100, input.noiseSupressionLevel));
+    }
+
+    if (typeof input.chromeAgcEnabled === "boolean") {
+      data.chromeAgcEnabled = input.chromeAgcEnabled;
+    }
+
+    if (typeof input.useStoatAgc === "boolean") {
+      data.useStoatAgc = input.useStoatAgc;
+    }
+
+    if (typeof input.stoatAgcTargetDbfs === "number") {
+      data.stoatAgcTargetDbfs = Math.max(-30, Math.min(-6, input.stoatAgcTargetDbfs));
     }
 
     if (typeof input.inputSensitivity === "number") {
@@ -290,6 +318,10 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     }
     if (typeof input.soundPttDeactivate === "boolean") {
       data.soundPttDeactivate = input.soundPttDeactivate;
+    }
+
+    if (typeof input.debugCaptureEnabled === "boolean") {
+      data.debugCaptureEnabled = input.debugCaptureEnabled;
     }
 
     return data;
@@ -441,6 +473,40 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
     this.set("useSileroVad", value);
   }
 
+  // [STOAT-AGC] Two AGC implementations are exclusive: enabling one
+  // automatically disables the other. Both can be off simultaneously
+  // (raw mic dynamics) — toggling the same one a second time turns it
+  // off without re-enabling the other.
+  get chromeAgcEnabled(): boolean {
+    return this.get().chromeAgcEnabled ?? true;
+  }
+
+  set chromeAgcEnabled(value: boolean) {
+    this.set("chromeAgcEnabled", value);
+    if (value && this.get().useStoatAgc) {
+      this.set("useStoatAgc", false);
+    }
+  }
+
+  get useStoatAgc(): boolean {
+    return this.get().useStoatAgc ?? false;
+  }
+
+  set useStoatAgc(value: boolean) {
+    this.set("useStoatAgc", value);
+    if (value && (this.get().chromeAgcEnabled ?? true)) {
+      this.set("chromeAgcEnabled", false);
+    }
+  }
+
+  get stoatAgcTargetDbfs(): number {
+    return this.get().stoatAgcTargetDbfs ?? -18;
+  }
+
+  set stoatAgcTargetDbfs(value: number) {
+    this.set("stoatAgcTargetDbfs", Math.max(-30, Math.min(-6, value)));
+  }
+
   /**
    * Set input volume
    */
@@ -466,7 +532,7 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
    * Get the preferred audio output device
    */
   get preferredAudioOutputDevice(): string | undefined {
-    return this.get().preferredAudioInputDevice;
+    return this.get().preferredAudioOutputDevice;
   }
 
   /**
@@ -782,5 +848,14 @@ export class Voice extends AbstractStore<"voice", TypeVoice> {
 
   set soundPttDeactivate(value: boolean) {
     this.set("soundPttDeactivate", value);
+  }
+
+  // [VOICE-DEBUG-CAPTURE]
+  get debugCaptureEnabled(): boolean {
+    return this.get().debugCaptureEnabled;
+  }
+
+  set debugCaptureEnabled(value: boolean) {
+    this.set("debugCaptureEnabled", value);
   }
 }

@@ -204,7 +204,7 @@ importers:
         specifier: ^1.11.13
         version: 1.11.13
       deepfilternet3-noise-filter:
-        specifier: ^1.1.4
+        specifier: 1.2.1
         version: 1.2.1(livekit-client@2.15.13(@types/dom-mediacapture-record@1.0.22))
       detect-browser:
         specifier: ^5.3.0

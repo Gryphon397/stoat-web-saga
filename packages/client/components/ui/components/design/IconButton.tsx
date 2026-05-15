@@ -36,6 +36,8 @@ export function IconButton(props: Props) {
     "width",
     "variant",
     "_compositionSendMessage",
+    "voiceIcon",
+    "danger",
   ]);
   let ref: HTMLButtonElement | undefined;
 
@@ -105,6 +107,21 @@ const iconButton2 = cva({
       _header: {
         "--colour": "white",
       },
+    },
+    voiceIcon: {
+      true: {
+        "--colour": "var(--md-sys-color-on-surface)",
+        _hover: {
+          background: "color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)",
+        },
+      },
+      false: {},
+    },
+    danger: {
+      true: {
+        "--colour": "var(--md-sys-color-error)",
+      },
+      false: {},
     },
     size: {
       xs: {

@@ -17,7 +17,6 @@ import { UserContextMenu } from "@revolt/app";
 import { useUser } from "@revolt/markdown/users";
 import { useVoice } from "@revolt/rtc";
 import { useState } from "@revolt/state";
-import { Slider } from "@revolt/ui";
 import { Avatar } from "@revolt/ui/components/design";
 import { Row } from "@revolt/ui/components/layout";
 import { OverflowingText } from "@revolt/ui/components/utils";
@@ -65,6 +64,8 @@ export function ParticipantTile(props: TileProps) {
 
   const isVideo = () => !isVideoMuted();
   const isScreenShare = () => track.source === Track.Source.ScreenShare;
+  const isLocal = () => participant.identity === voice.room()?.localParticipant?.identity;
+  const [showLocalPreview, setShowLocalPreview] = createSignal(false);
   const isSpeaking = useIsSpeaking(participant);
 
   const getHeight = () => {
@@ -259,17 +260,23 @@ export function ParticipantTile(props: TileProps) {
   };
 
   return (
-    <Show when={!isScreenShare() || !isRemoteScreenShareMuted()}>
+    <Show when={!isScreenShare() || (!isRemoteScreenShareMuted() && !voice.isScreenshareStopped(participant.identity))}>
     <div
       class={
         tile({
-          speaking: !isScreenShare() && isSpeaking(),
+          speaking: !isScreenShare() && isSpeaking() && !isMuted(),
           video: isVideo() || isScreenShare(),
           fullscreen: voice.fullscreen(),
           ...props,
         }) + (isScreenShare() ? " vc_tile group" : " vc_tile")
       }
-      onClick={() => !isScreenShare() && voice.toggleFocus(track)}
+      onClick={() => {
+        if (isLocal() && isScreenShare()) {
+          setShowLocalPreview((v) => !v);
+        } else if (!isScreenShare()) {
+          voice.toggleFocus(track);
+        }
+      }}
       use:floating={
         isScreenShare()
           ? undefined
@@ -298,24 +305,35 @@ export function ParticipantTile(props: TileProps) {
           </AvatarOnly>
         }
       >
-        <VideoTrack
-          style={{
-            "grid-area": "1/1",
-            "object-fit": "contain",
-            width: "100%",
-            height: "100%",
-            overflow: "hidden",
-          }}
-          trackRef={track as TrackReference}
-          manageSubscription={true}
-          ref={videoRef}
-          on:resize={() => {
-            setVideoDims({
-              height: videoRef?.videoHeight || 0,
-              width: videoRef?.videoWidth || 0,
-            });
-          }}
-        />
+        <Show
+          when={!(isLocal() && isScreenShare()) || showLocalPreview()}
+          fallback={
+            <LocalScreenSharePlaceholder>
+              <Symbol size={32}>screen_share</Symbol>
+              <span>You are screen sharing</span>
+              <span style={{ "font-size": "11px", opacity: "0.6" }}>Click to preview</span>
+            </LocalScreenSharePlaceholder>
+          }
+        >
+          <VideoTrack
+            style={{
+              "grid-area": "1/1",
+              "object-fit": "contain",
+              width: "100%",
+              height: "100%",
+              overflow: "hidden",
+            }}
+            trackRef={track as TrackReference}
+            manageSubscription={true}
+            ref={videoRef}
+            on:resize={() => {
+              setVideoDims({
+                height: videoRef?.videoHeight || 0,
+                width: videoRef?.videoWidth || 0,
+              });
+            }}
+          />
+        </Show>
       </Show>
 
       <Show when={isScreenShare()} fallback={
@@ -326,6 +344,7 @@ export function ParticipantTile(props: TileProps) {
               <VoiceStatefulUserIcons
                 userId={participant.identity}
                 muted={isMuted()}
+                deafened={participant.attributes?.deafened === "true"}
                 camera={isVideo()}
               />
             </Row>
@@ -333,28 +352,37 @@ export function ParticipantTile(props: TileProps) {
         </Overlay>
       }>
         <Overlay showOnHover>
-          <div style={{ display: "flex", "flex-direction": "column", width: "100%", gap: "var(--gap-sm)" }}>
-            <div
-              style={{ display: "flex", "align-items": "center", gap: "var(--gap-sm)" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Symbol size={16}>volume_up</Symbol>
-              <Slider
-                min={0}
-                max={3}
-                step={0.1}
-                value={state.voice.getScreenshareVolume(participant.identity)}
-                onInput={(e) =>
-                  state.voice.setScreenshareVolume(
-                    participant.identity,
-                    e.currentTarget.value,
-                  )
-                }
-                labelFormatter={(v) => (v * 100).toFixed(0) + "%"}
-              />
-            </div>
-            <OverlayInner>
-              <OverflowingText>{user().username}</OverflowingText>
+          <OverlayInner>
+            <OverflowingText>{user().username}</OverflowingText>
+            <VolumeControlGroup class="group" onClick={(e) => e.stopPropagation()}>
+              <VolumePopup>
+                <VolumePercentLabel>
+                  {Math.round(state.voice.getScreenshareVolume(participant.identity) * 100)}%
+                </VolumePercentLabel>
+                <input
+                  type="range"
+                  min={0}
+                  max={3}
+                  step={0.1}
+                  value={state.voice.getScreenshareVolume(participant.identity)}
+                  style={{
+                    "writing-mode": "vertical-lr",
+                    direction: "rtl",
+                    height: "72px",
+                    width: "20px",
+                    cursor: "pointer",
+                    "accent-color": "white",
+                    background: "transparent",
+                    margin: "0",
+                  }}
+                  onInput={(e) =>
+                    state.voice.setScreenshareVolume(
+                      participant.identity,
+                      parseFloat((e.target as HTMLInputElement).value),
+                    )
+                  }
+                />
+              </VolumePopup>
               <OverlayIconButton
                 title={state.voice.getScreenshareMuted(participant.identity) ? "Unmute screenshare audio" : "Mute screenshare audio"}
                 onClick={(e) => {
@@ -372,14 +400,23 @@ export function ParticipantTile(props: TileProps) {
                   <Symbol size={18}>volume_off</Symbol>
                 </Show>
               </OverlayIconButton>
-              <Show when={isScreenShareAudioMuted()}>
-                <Symbol size={18}>no_sound</Symbol>
-              </Show>
-              <OverlayIconButton title="Pop out" onClick={popOut}>
-                <Symbol size={18}>picture_in_picture_alt</Symbol>
-              </OverlayIconButton>
-            </OverlayInner>
-          </div>
+            </VolumeControlGroup>
+            <Show when={isScreenShareAudioMuted()}>
+              <Symbol size={18}>no_sound</Symbol>
+            </Show>
+            <OverlayIconButton
+              title="Stop watching"
+              onClick={(e) => {
+                e.stopPropagation();
+                voice.stopWatchingScreenshare(participant.identity);
+              }}
+            >
+              <Symbol size={18}>visibility_off</Symbol>
+            </OverlayIconButton>
+            <OverlayIconButton title="Pop out" onClick={popOut}>
+              <Symbol size={18}>picture_in_picture_alt</Symbol>
+            </OverlayIconButton>
+          </OverlayInner>
         </Overlay>
       </Show>
     </div>
@@ -444,6 +481,21 @@ export const tile = cva({
       },
     },
   ],
+});
+
+const LocalScreenSharePlaceholder = styled("div", {
+  base: {
+    gridArea: "1/1",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "var(--gap-sm)",
+    background: "#111",
+    color: "rgba(255,255,255,0.65)",
+    fontSize: "13px",
+    userSelect: "none",
+  },
 });
 
 const AvatarOnly = styled("div", {
@@ -524,5 +576,50 @@ const OverlayIconButton = styled("button", {
     _hover: {
       background: "rgba(255,255,255,0.15)",
     },
+  },
+});
+
+const VolumeControlGroup = styled("div", {
+  base: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+  },
+});
+
+const VolumePopup = styled("div", {
+  base: {
+    position: "absolute",
+    bottom: "calc(100% + 8px)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(0, 0, 0, 0.8)",
+    borderRadius: "var(--borderRadius-md)",
+    padding: "8px 6px 6px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "4px",
+    opacity: 0,
+    pointerEvents: "none",
+    transition: "opacity var(--transitions-fast)",
+    zIndex: 10,
+
+    _groupHover: {
+      opacity: 1,
+      pointerEvents: "auto",
+    },
+  },
+});
+
+const VolumePercentLabel = styled("span", {
+  base: {
+    color: "white",
+    fontSize: "10px",
+    lineHeight: 1,
+    fontFamily: "sans-serif",
+    userSelect: "none",
+    minWidth: "28px",
+    textAlign: "center",
   },
 });

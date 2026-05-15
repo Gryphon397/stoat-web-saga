@@ -16,8 +16,8 @@ import { LAYOUT_SECTIONS } from "@revolt/state/stores/Layout";
 import { CircularProgress } from "@revolt/ui";
 
 import { Sidebar } from "./interface/Sidebar";
+import { BUILD } from "./build";
 
-const BUILD = 28;
 console.info(`[stoat-dev] build ${BUILD}`);
 
 /**
