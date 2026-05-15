@@ -3350,8 +3350,16 @@ class Voice {
       // rooms (-90 dBFS floor) the +12 dB headroom would land around -78 dBFS,
       // which makes the gate open on every breath and HVAC tick. -60 dBFS is
       // a conservative but reliable floor — manual mode still allows -100.
-      // To revert: change -60 back to -100.
-      const dbfs = Math.max(-60, Math.min(-20, 20 * Math.log10(floorRms) + 12));
+      //
+      // [Voice/F17] Upper bound is -15 dBFS (relaxed from -20). In moderately
+      // noisy rooms the +12 dB headroom can push the threshold up against the
+      // ceiling, and conversational speech on common mics typically lands at
+      // -25 to -30 dBFS — a -20 ceiling was clipping normal speech and
+      // forcing users to speak unusually loud to open the gate. -15 leaves
+      // enough margin to still gate out loud ambient noise while letting
+      // typical voice through. To revert F17: change -15 back to -20.
+      // To revert -60 floor: change -60 back to -100.
+      const dbfs = Math.max(-60, Math.min(-15, 20 * Math.log10(floorRms) + 12));
       this.#settings.inputSensitivity = dbfs;
       this.updateGateThreshold(dbfs);
       console.log(`[Voice] 🎚 Auto-calibrated sensitivity: ${dbfs.toFixed(1)} dBFS (n=${this.#calibrationHistory.length})`);
