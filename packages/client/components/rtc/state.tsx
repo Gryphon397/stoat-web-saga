@@ -29,6 +29,7 @@ import {
   encodeWavMono16,
   ensureCaptureRecorderRegistered,
   formatBundleTimestamp,
+  isDebugCaptureBuild,
 } from "./debugCapture";
 // [Voice/H2] dev-only A/B harness for blind comparisons
 import {
@@ -1070,8 +1071,31 @@ class Voice {
   // [VOICE-DEBUG-CAPTURE] Tap-point handles into the existing input gate
   // graph. Set by #applyInputGate, cleared by #cleanupInputGate. Only used
   // when a debug capture is armed — no impact on the live audio path.
-  #tapRawSrc: MediaStreamAudioSourceNode | null = null;
+  // [Voice/H5] Widened to AudioNode: the head of the graph is normally a
+  // MediaStreamAudioSourceNode (live mic) but may be an injected AudioNode
+  // under the dev test harness. Stage-01 (01_raw_mic.wav) taps this node, so
+  // an injected run records the injected signal pre-bandpass — that is the
+  // STEP 4 confidence check.
+  #tapRawSrc: AudioNode | null = null;
   #tapBandpass: BiquadFilterNode | null = null;
+  // [Voice/H5] TX injection seam. When non-null, #applyInputGate uses this
+  // node as the HEAD of the input-gate graph instead of the live mic — the
+  // entire downstream chain (bandpass detector, 80 Hz HPF, DF3, gate, AGC,
+  // dest) is identical; only the head differs. A normal call never sets this
+  // (stays null), so the mic path is byte-identical to pre-H5. The node MUST
+  // be created on #inputGateCtx by the test harness (H7) and is owned by it —
+  // #applyInputGate / teardown never stop() or close() it, only disconnect
+  // its outputs on rebuild. Cleared on full teardown so the next join reverts
+  // to the mic. Dev-only (gated at the public setter).
+  #injectedSource: AudioNode | null = null;
+  // [Voice/H5] Bridge node that turns the injected AudioNode into a
+  // MediaStreamTrack, so everything that branches off the mic TRACK (Silero
+  // VAD, the auto-calibrator, the "raw mic" diag tap — all read #rawMicTrack)
+  // sees the injected signal too. Without this they stay bound to the real
+  // hardware mic and the harness misrepresents the post-A2 pipeline. Owned by
+  // us (unlike #injectedSource): recreated per injected build, torn down on
+  // cleanup. Null when injection is inactive.
+  #injectedMicTapDest: MediaStreamAudioDestinationNode | null = null;
   // Active debug-capture session (null when none in progress).
   #captureSession: DebugCaptureSession | null = null;
   // Set by debug capture if applyMicConstraints fires while a capture is
@@ -2249,37 +2273,82 @@ class Voice {
       // tracks and ends up handing back a destination-node track instead
       // of a mic (caught in diagnostics).
       const isFirstBuild = !this.#inputGateDest;
-      let newMic: MediaStreamTrack;
-      if (isFirstBuild) {
-        newMic = track.mediaStreamTrack;
-      } else {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: this.#settings.preferredAudioInputDevice,
-            echoCancellation: this.#settings.echoCancellation ?? true,
-            noiseSuppression: false, // DF3 handles NS as a track processor
-            autoGainControl: this.#settings.chromeAgcEnabled ?? true,
-          },
-        });
-        newMic = stream.getAudioTracks()[0];
-        const prevMic = this.#rawMicTrack;
-        if (prevMic && prevMic !== newMic) {
-          try { prevMic.stop(); } catch { /* ignore */ }
+      // [Voice/H5] TX injection seam. When an injected source is set (dev test
+      // harness), the HEAD of the graph is that node instead of the live mic.
+      // The MIC branch below is byte-identical to pre-H5 — a normal call never
+      // enters the injection branch (#injectedSource stays null), which is the
+      // guarantee that protects normal calls. The injected branch skips mic
+      // acquisition entirely; everything downstream of `src` (detector, HPF,
+      // DF3, gate, AGC, dest) is the same node graph, so the output differs
+      // only because the input differs.
+      const usingInjectedSource = !!this.#injectedSource;
+      let src: AudioNode;
+      if (usingInjectedSource) {
+        // The injected node was created on this same #inputGateCtx by the test
+        // harness. We do NOT own it — never stop()/close() it here. No
+        // getUserMedia, no clone.
+        src = this.#injectedSource!;
+        // [Voice/H5] Bridge the injected node into a MediaStreamTrack and treat
+        // it as the raw mic, so Silero VAD, the auto-calibrator and the "raw
+        // mic" diag tap (all read #rawMicTrack) see the injected signal — not
+        // the real hardware mic. The detector/clean path already consume `src`
+        // directly above; this closes the gap for the track-based consumers so
+        // the harness faithfully represents the post-A2 pipeline.
+        if (this.#injectedMicTapDest) {
+          try { this.#injectedMicTapDest.disconnect(); } catch { /* ignore */ }
         }
+        const prevRaw = this.#rawMicTrack;
+        const injectedMicDest = ctx.createMediaStreamDestination();
+        this.#injectedSource!.connect(injectedMicDest);
+        this.#injectedMicTapDest = injectedMicDest;
+        this.#rawMicTrack = injectedMicDest.stream.getAudioTracks()[0];
+        // Drop the previous track (a prior bridge, or the real mic we're
+        // displacing for the test) so we don't leak a live capture track.
+        // Revert re-acquires a fresh mic via getUserMedia, so this is safe.
+        if (prevRaw && prevRaw !== this.#rawMicTrack) {
+          try { prevRaw.stop(); } catch { /* ignore */ }
+        }
+        console.log("[Voice/H5] input gate head = INJECTED source (mic, Silero & auto-cal bridged to injection)");
+      } else {
+        // [Voice/H5] Reverting to the live mic — drop any stale injection
+        // bridge. No-op in a normal call (#injectedMicTapDest is always null
+        // there), so the mic path stays byte-identical.
+        if (this.#injectedMicTapDest) {
+          try { this.#injectedMicTapDest.disconnect(); } catch { /* ignore */ }
+          this.#injectedMicTapDest = null;
+        }
+        let newMic: MediaStreamTrack;
+        if (isFirstBuild) {
+          newMic = track.mediaStreamTrack;
+        } else {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: this.#settings.preferredAudioInputDevice,
+              echoCancellation: this.#settings.echoCancellation ?? true,
+              noiseSuppression: false, // DF3 handles NS as a track processor
+              autoGainControl: this.#settings.chromeAgcEnabled ?? true,
+            },
+          });
+          newMic = stream.getAudioTracks()[0];
+          const prevMic = this.#rawMicTrack;
+          if (prevMic && prevMic !== newMic) {
+            try { prevMic.stop(); } catch { /* ignore */ }
+          }
+        }
+        this.#rawMicTrack = newMic;
+        const cloned = newMic.clone();
+        console.log("[Voice/diag] raw mic + clone:", {
+          isFirstBuild,
+          rawId: newMic.id,
+          rawReady: newMic.readyState,
+          rawEnabled: newMic.enabled,
+          rawMuted: newMic.muted,
+          rawLabel: newMic.label,
+          cloneId: cloned.id,
+          cloneReady: cloned.readyState,
+        });
+        src = ctx.createMediaStreamSource(new MediaStream([cloned]));
       }
-      this.#rawMicTrack = newMic;
-      const cloned = newMic.clone();
-      console.log("[Voice/diag] raw mic + clone:", {
-        isFirstBuild,
-        rawId: newMic.id,
-        rawReady: newMic.readyState,
-        rawEnabled: newMic.enabled,
-        rawMuted: newMic.muted,
-        rawLabel: newMic.label,
-        cloneId: cloned.id,
-        cloneReady: cloned.readyState,
-      });
-      const src = ctx.createMediaStreamSource(new MediaStream([cloned]));
 
       // [VAD-IMPROVEMENT-#5] Build a 300-3400 Hz speech-band side-chain via
       // cascaded high-pass + low-pass biquads (Butterworth Q≈0.707). Only the
@@ -2466,6 +2535,9 @@ class Voice {
       // Loads onnxruntime-web (~5 MB cached) + silero_vad.onnx (~1 MB) on first
       // attach. Falls back gracefully to RMS-only if the package fails to load.
       // To revert: delete this block (gate already supports sileroEnabled=false).
+      // [Voice/H5] Under injection, #rawMicTrack is the bridged injected track
+      // (set above), so Silero classifies the injected signal — exactly what a
+      // live mic would feed it. No injection-specific guard.
       if (this.#settings.useSileroVad ?? true) {
         void this.#startSileroVad();
       }
@@ -2613,6 +2685,16 @@ class Voice {
       try { this.#rawMicTrack.stop(); } catch { /* ignore */ }
       this.#rawMicTrack = null;
     }
+    // [Voice/H5] Drop the injection ref on full teardown so the next join
+    // reverts to the live mic. The harness owns #injectedSource's lifecycle —
+    // we do not stop()/close() it here, only release our reference. The bridge
+    // dest IS ours: disconnect it (its derived track was the just-stopped
+    // #rawMicTrack).
+    this.#injectedSource = null;
+    if (this.#injectedMicTapDest) {
+      try { this.#injectedMicTapDest.disconnect(); } catch { /* ignore */ }
+      this.#injectedMicTapDest = null;
+    }
   }
 
   /** Send a new threshold to the running gate worklet without restarting the track. */
@@ -2620,6 +2702,82 @@ class Voice {
     if (this.#inputGateNode) {
       this.#inputGateNode.port.postMessage({ threshold: Math.pow(10, dbfs / 20) });
     }
+  }
+
+  // ─── [Voice/H5] TX injection seam (dev-only) ──────────────────────────────
+  // The loopback test harness (H6/H7) builds its source nodes on this exact
+  // AudioContext (per the reuse rule — no parallel context) and hands the
+  // summed head node to setInjectedTxSource(). These accessors are the only
+  // public surface of the seam; the wiring lives in #applyInputGate.
+
+  /**
+   * The live input-gate AudioContext (48 kHz), or null before the first join.
+   * The harness must create its injected source node on THIS context so it
+   * shares the clock with the rest of the graph. Returns null until the gate
+   * has been built once (i.e. the user has joined voice at least once).
+   */
+  get inputGateContext(): AudioContext | null {
+    return this.#inputGateCtx;
+  }
+
+  /** True while an injected source is driving the head of the graph. */
+  get isTxInjectionActive(): boolean {
+    return !!this.#injectedSource;
+  }
+
+  /**
+   * [Voice/H5] Swap the HEAD of the input-gate graph between the live mic and
+   * an arbitrary injected AudioNode, then rebuild the gate so the change takes
+   * effect. Pass a node (created on inputGateContext) to inject; pass null to
+   * revert to the live mic.
+   *
+   * Invariants:
+   *  - MIC path stays byte-identical to a pre-H5 build — reverting clears the
+   *    flag and the next rebuild runs the unmodified getUserMedia path.
+   *  - The injected node's lifecycle is owned by the caller (the harness). We
+   *    only read it, wire its output downstream, and disconnect that output on
+   *    rebuild/teardown — we never stop() or close() it.
+   *
+   * Dev-gated behind isDebugCaptureBuild() (DEV or __STOAT_DEBUG_CAPTURE__),
+   * the same gate as debug capture. No-ops (and warns) outside a live call
+   * because there is no published track to rebuild against.
+   *
+   * NOTE: while injecting into the *local* room's pipeline, the caller is
+   * responsible for muting the real mic publication so the injected signal
+   * does not leak into the channel (enforced by the H7 panel). H6 publishes
+   * the dest output on the phantom connection instead.
+   */
+  async setInjectedTxSource(node: AudioNode | null): Promise<void> {
+    if (!isDebugCaptureBuild()) {
+      console.warn("[Voice/H5] setInjectedTxSource ignored — not a debug build");
+      return;
+    }
+    if (node && this.#inputGateCtx && node.context !== this.#inputGateCtx) {
+      // A node from a different AudioContext cannot connect into our graph —
+      // fail loudly rather than silently producing a dead head.
+      console.error(
+        "[Voice/H5] injected node belongs to a different AudioContext — " +
+        "create it on voice.inputGateContext",
+      );
+      return;
+    }
+    this.#injectedSource = node;
+    const room = this.room();
+    const pub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+    const track = pub?.track as LocalAudioTrack | undefined;
+    if (!track) {
+      console.warn(
+        "[Voice/H5] injected source set but no live mic publication to rebuild " +
+        "against — join voice first; it will apply on the next gate build",
+      );
+      return;
+    }
+    // Rebuild the gate against the current published track. The injected head
+    // replaces the mic; everything downstream is rewired unchanged.
+    await this.#applyInputGate(track);
+    console.log(
+      `[Voice/H5] TX injection ${node ? "ENABLED" : "reverted to mic"}`,
+    );
   }
 
   /**
@@ -3544,6 +3702,54 @@ export function VoiceContext(props: { children: JSX.Element }) {
     (window as any).stoatDiag = stoatDiagFn;
     console.log("[Voice] 🔍 Type window.stoatDiag() to print voice stats, window.stoatDiag.history() for the rolling buffer");
 
+    // [Voice/H5] Dev-only console hook for the injection seam, so the STEP 4
+    // stage-01 confidence check can run before H7's UI exists. H7 supersedes
+    // this with a proper test panel. Gated behind the debug-capture build.
+    //   window.stoatVoiceTest.injectUrl("/assets/audio/join_call.mp3", {loop:true})
+    //   window.stoatVoiceTest.revert()
+    // CAUTION: injecting routes the test signal into the LOCAL room's publish
+    // track — run solo in a test channel or pre-mute before injecting.
+    if (isDebugCaptureBuild()) {
+      const injectUrl = async (
+        url: string,
+        opts: { loop?: boolean } = {},
+      ): Promise<AudioBufferSourceNode | null> => {
+        const ctx = voice.inputGateContext;
+        if (!ctx) {
+          console.warn("[Voice/H5] join voice first — no input-gate context yet");
+          return null;
+        }
+        const arr = await (await fetch(url)).arrayBuffer();
+        // decodeAudioData resamples to the 48 kHz ctx automatically.
+        const decoded = await ctx.decodeAudioData(arr);
+        // Downmix to mono (the chain is single-channel) so stage-01 should
+        // reproduce the file mono @ 48 kHz — the seam-fidelity assertion.
+        const mono = ctx.createBuffer(1, decoded.length, ctx.sampleRate);
+        const out = mono.getChannelData(0);
+        for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+          const data = decoded.getChannelData(ch);
+          for (let i = 0; i < data.length; i++) {
+            out[i] += data[i] / decoded.numberOfChannels;
+          }
+        }
+        const node = ctx.createBufferSource();
+        node.buffer = mono;
+        node.loop = !!opts.loop;
+        // Wire the node as the graph head BEFORE starting it.
+        await voice.setInjectedTxSource(node);
+        node.start();
+        console.warn(
+          `[Voice/H5] INJECTING ${url} (loop=${!!opts.loop}). This is going ` +
+          `out the local publish track — you should be solo/muted. ` +
+          `Call window.stoatVoiceTest.revert() to restore the mic.`,
+        );
+        return node;
+      };
+      const revert = async () => { await voice.setInjectedTxSource(null); };
+      (window as any).stoatVoiceTest = { injectUrl, revert };
+      console.log("[Voice/H5] 🧪 window.stoatVoiceTest.injectUrl(url,{loop}) / .revert()");
+    }
+
     // Auto-print stats every 30s while connected
     const statsInterval = setInterval(async () => {
       const room = voice.room();
@@ -3555,6 +3761,8 @@ export function VoiceContext(props: { children: JSX.Element }) {
     onCleanup(() => {
       clearInterval(statsInterval);
       delete (window as any).stoatDiag;
+      // [Voice/H5] tear down the dev injection hook
+      delete (window as any).stoatVoiceTest;
     });
   });
 
