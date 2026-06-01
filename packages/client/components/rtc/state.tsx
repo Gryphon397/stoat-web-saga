@@ -2944,6 +2944,9 @@ class Voice {
       // pushing DF3 to 05. Bundle readers should branch on captureVersion.
       // [Voice/H1] captureVersion 3 keeps the same file layout but adds
       // metadata.loudness keyed by the leading "NN" of each filename.
+      // [Voice/H5] captureVersion 4 keeps the file layout but adds
+      // metadata.processingOrder (true A2 signal-flow order — the 01..05
+      // numbering is legacy pre-A2 with DF3 last) and metadata.injectionActive.
       recorders.push(buildRecorder("01_raw_mic.wav", "raw mic", rawSrc, false));
       recorders.push(buildRecorder("02_post_bandpass.wav", "post bandpass", bandpass, false));
       recorders.push(buildRecorder("03_post_gate.wav", "post gate", gate, false));
@@ -3022,8 +3025,42 @@ class Voice {
 
         const ts = new Date();
         const subfolder = `stoat-capture-${formatBundleTimestamp(ts)}`;
+        // [Voice/H5] True signal-flow order for this architecture, so bundle
+        // readers stop interpreting the stages in the legacy filename order
+        // (01..05 with DF3 last). Under A2 the main path is 01 → 05(DF3) →
+        // 03(gate) → 04(AGC)=transmit, with 02 a detector sidechain off the
+        // head. Only files actually recorded this run are included.
+        const presentFiles = new Set(wavs.map((w) => w.name));
+        const roleByFile: Record<string, string> = a2Active
+          ? {
+              "01_raw_mic.wav": "head (live mic or injected source), pre-HPF",
+              "02_post_bandpass.wav": "gate detector sidechain (300-3400 Hz off head; not transmitted)",
+              "05_post_dfn3.wav": "DF3 output (continuous, upstream of gate) = gate input 0",
+              "03_post_gate.wav": "post input-gate",
+              "04_post_agc.wav": "post AGC/leveler = transmitted",
+            }
+          : {
+              "01_raw_mic.wav": "raw mic, pre-bandpass/pre-gate",
+              "02_post_bandpass.wav": "gate detector sidechain (not transmitted)",
+              "03_post_gate.wav": "post input-gate",
+              "04_post_agc.wav": "post AGC",
+              "05_post_dfn3.wav": "DF3 output = transmitted (legacy: DF3 last)",
+            };
+        const orderSeq = a2Active
+          ? ["01_raw_mic.wav", "02_post_bandpass.wav", "05_post_dfn3.wav", "03_post_gate.wav", "04_post_agc.wav"]
+          : ["01_raw_mic.wav", "02_post_bandpass.wav", "03_post_gate.wav", "04_post_agc.wav", "05_post_dfn3.wav"];
+        const processingOrder = orderSeq
+          .filter((f) => presentFiles.has(f))
+          .map((f) => ({
+            file: f,
+            role: roleByFile[f] ?? "",
+            // 02 (bandpass) is the only sidechain tap; everything else is on
+            // the transmit path.
+            mainPath: f !== "02_post_bandpass.wav",
+          }));
+
         const metadata: CaptureMetadata = {
-          captureVersion: 3,
+          captureVersion: 4,
           timestampIso: ts.toISOString(),
           audioContextStartTime,
           captureDurationSec: durationSec,
@@ -3066,6 +3103,8 @@ class Voice {
           },
           files: wavs.map((w) => w.name),
           loudness,
+          processingOrder,
+          injectionActive: this.isTxInjectionActive,
         };
 
         // Free recorder buffers before IPC ships ArrayBuffers to main.

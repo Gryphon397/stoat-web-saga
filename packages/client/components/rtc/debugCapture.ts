@@ -152,6 +152,19 @@ export interface CaptureMetadata {
   // ("01", "02", ...). Added in captureVersion 3. Older bundles won't have
   // this; downstream readers must guard with `metadata.loudness?.["NN"]`.
   loudness?: Record<string, { lufsIntegrated: number; truePeakDbfs: number }>;
+  // [Voice/H5] True signal-flow order of the captured stages for THIS
+  // capture's architecture. The file numbering (01..05) is legacy pre-A2
+  // (DF3 was last); under A2 the real main-path order is 01 → 05 (DF3) → 03
+  // (gate) → 04 (AGC), and 02 (bandpass) is a detector SIDE-CHAIN off the
+  // head, not in the transmit path. Downstream readers should order by this
+  // array, not by filename index, so captures stop reading in the stale
+  // pre-A2 order. Each entry: { file, role, mainPath }. mainPath=false marks
+  // sidechain/diagnostic taps. Added in captureVersion 4; guard for older
+  // bundles. The transmitted stage is the last mainPath entry.
+  processingOrder?: Array<{ file: string; role: string; mainPath: boolean }>;
+  // [Voice/H5] True when this bundle was captured with an injected TX source
+  // (loopback test harness) instead of the live mic. Added in captureVersion 4.
+  injectionActive?: boolean;
 }
 
 /**
