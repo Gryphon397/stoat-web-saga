@@ -1096,6 +1096,13 @@ class Voice {
   // us (unlike #injectedSource): recreated per injected build, torn down on
   // cleanup. Null when injection is inactive.
   #injectedMicTapDest: MediaStreamAudioDestinationNode | null = null;
+  // [Voice/H6] Second LiveKit Room connected under the test-bot identity. It
+  // publishes the TX-chain output (#inputGateDest track) so the REAL client
+  // subscribes to it like any remote participant and plays it through the
+  // normal RX path — the "phantom participant" loopback. Connected with
+  // autoSubscribe:false (the phantom is headless — it never plays audio and
+  // must not subscribe to itself or anyone). Null when not running. Dev-only.
+  #phantomRoom: Room | null = null;
   // Active debug-capture session (null when none in progress).
   #captureSession: DebugCaptureSession | null = null;
   // Set by debug capture if applyMicConstraints fires while a capture is
@@ -1647,6 +1654,10 @@ class Voice {
     if (this.#abHarnessSession) {
       try { this.#abHarnessSession.cancel(); } catch { /* ignore */ }
     }
+
+    // [Voice/H6] Tear down the phantom loopback Room if it's running — it's
+    // bound to this call's channel and pipeline output.
+    void this.stopPhantom();
 
     // Stop per-process audio capture if active
     this.#stopAppAudioCapture();
@@ -2780,6 +2791,139 @@ class Voice {
     );
   }
 
+  // ─── [Voice/H6] Phantom-participant loopback (dev-only) ───────────────────
+  // A second Room under the test-bot identity publishes the TX-chain output so
+  // the REAL client receives it as a remote participant and plays it through
+  // the normal RX path — the only way to hear your own round trip (LiveKit
+  // never sends your own published track back to you).
+
+  /**
+   * Fetch the loopback-bot token from the dev server's live endpoint, or null
+   * if unset/unavailable. Served per-request from the container env (not baked
+   * into the bundle), so it's immune to service-worker / index.html caching.
+   */
+  async #readVoiceTestBotToken(): Promise<string | null> {
+    try {
+      const resp = await fetch("/voice-test-bot-token", { cache: "no-store" });
+      if (!resp.ok) return null;
+      const { token } = (await resp.json()) as { token?: string };
+      return token && typeof token === "string" ? token : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** True while the phantom Room is connected. */
+  get isPhantomActive(): boolean {
+    return !!this.#phantomRoom;
+  }
+
+  /**
+   * [Voice/H6] Connect a second Room as the test-bot and publish the
+   * input-gate pipeline output (#inputGateDest track) into the SAME channel
+   * you're in, so you hear the full round trip. Publishes whatever the pipeline
+   * currently outputs — the injected source if H5 injection is active, else the
+   * live mic. Headless: autoSubscribe:false, so the phantom never plays audio
+   * or subscribes to itself/others. Dev-gated.
+   *
+   * Caveat: the pipeline output also leaves under YOUR identity on the main
+   * room (shared track), so run solo in a test channel or mute your real
+   * publication (H7 automates the mute) to avoid doubling the round trip for
+   * other participants.
+   */
+  async startPhantom(): Promise<void> {
+    if (!isDebugCaptureBuild()) {
+      console.warn("[Voice/H6] startPhantom ignored — not a debug build");
+      return;
+    }
+    if (this.#phantomRoom) {
+      console.warn("[Voice/H6] phantom already running — stopPhantom() first");
+      return;
+    }
+    const channel = this.channel();
+    if (!channel) {
+      console.warn("[Voice/H6] join a voice channel first");
+      return;
+    }
+    const botToken = await this.#readVoiceTestBotToken();
+    if (!botToken) {
+      console.warn("[Voice/H6] no bot token from /voice-test-bot-token — set VITE_VOICE_TEST_BOT_TOKEN in .env and restart web-dev");
+      return;
+    }
+    const track = this.#inputGateDest?.stream.getAudioTracks()[0];
+    if (!track) {
+      console.warn("[Voice/H6] no pipeline output track — input gate not built (join voice first)");
+      return;
+    }
+    // Mint a LiveKit token for the bot via the same join_call endpoint the real
+    // client uses, authenticated with x-bot-token. force_disconnect MUST be
+    // false (true -> 403 IsBot) and node MUST be supplied (or inherited from an
+    // existing call), else 400 UnknownNode.
+    const baseURL = this.getClient().options.baseURL;
+    let url: string;
+    let token: string;
+    try {
+      const resp = await fetch(`${baseURL}/channels/${channel.id}/join_call`, {
+        method: "POST",
+        headers: { "x-bot-token": botToken, "content-type": "application/json" },
+        body: JSON.stringify({ node: "worldwide", force_disconnect: false }),
+      });
+      if (!resp.ok) {
+        console.error(`[Voice/H6] join_call failed ${resp.status}:`, await resp.text());
+        return;
+      }
+      ({ url, token } = await resp.json());
+    } catch (e) {
+      console.error("[Voice/H6] join_call request error:", e);
+      return;
+    }
+    // Match the main room's Opus settings so the phantom transmits exactly what
+    // a real participant would (DTX off, FEC + RED on, 128 kbps).
+    const room = new Room({
+      publishDefaults: {
+        audioPreset: { maxBitrate: 128_000 },
+        dtx: false,
+        red: true,
+        codecOptions: { opusFec: true, opusDtx: false, opusMaxPlaybackRate: 48000 },
+      },
+    });
+    // Publish a CLONE of the pipeline output, not the track itself: the
+    // original is the user's main-room publication, and LiveKit may stop a
+    // published MediaStreamTrack on unpublish/disconnect — stopping the shared
+    // track would kill the user's real audio. The clone carries the same
+    // dest-node output but its lifecycle is the phantom's alone.
+    const phantomTrack = track.clone();
+    try {
+      await room.connect(url, token, { autoSubscribe: false });
+      await room.localParticipant.publishTrack(phantomTrack, {
+        source: Track.Source.Microphone,
+        dtx: false,
+        red: true,
+      });
+    } catch (e) {
+      console.error("[Voice/H6] phantom connect/publish failed:", e);
+      try { phantomTrack.stop(); } catch { /* ignore */ }
+      try { await room.disconnect(); } catch { /* ignore */ }
+      return;
+    }
+    this.#phantomRoom = room;
+    console.warn(
+      "[Voice/H6] phantom CONNECTED as voice-test-bot, publishing the TX " +
+      "output. You should hear it as a remote participant. Run solo/muted so " +
+      "the round trip isn't doubled. window.stoatVoiceTest.stopPhantom() to end.",
+    );
+  }
+
+  /** [Voice/H6] Disconnect the phantom Room. Idempotent. */
+  async stopPhantom(): Promise<void> {
+    const room = this.#phantomRoom;
+    this.#phantomRoom = null;
+    if (room) {
+      try { await room.disconnect(); } catch { /* ignore */ }
+      console.log("[Voice/H6] phantom disconnected");
+    }
+  }
+
   /**
    * [STOAT-AGC] Live-update the AGC worklet without restarting the track.
    * No-ops when the gate isn't built yet — config will be applied on the
@@ -3785,8 +3929,15 @@ export function VoiceContext(props: { children: JSX.Element }) {
         return node;
       };
       const revert = async () => { await voice.setInjectedTxSource(null); };
-      (window as any).stoatVoiceTest = { injectUrl, revert };
+      (window as any).stoatVoiceTest = {
+        injectUrl,
+        revert,
+        // [Voice/H6] phantom loopback controls
+        startPhantom: () => voice.startPhantom(),
+        stopPhantom: () => voice.stopPhantom(),
+      };
       console.log("[Voice/H5] 🧪 window.stoatVoiceTest.injectUrl(url,{loop}) / .revert()");
+      console.log("[Voice/H6] 🧪 window.stoatVoiceTest.startPhantom() / .stopPhantom()");
     }
 
     // Auto-print stats every 30s while connected

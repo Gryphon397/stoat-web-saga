@@ -135,6 +135,17 @@ app.use(
   })
 );
 
+// [Voice/H6] Dev-only loopback-harness bot token, served live from the
+// container env. Read per-request (no-store) instead of baking it into the
+// static bundle — the service worker precaches the pre-injection index.html
+// (placeholder), so an injected static global is unreliable, and this also
+// keeps the secret out of cached assets. Empty string on prod (env unset),
+// so the client treats it as disabled.
+app.get("/voice-test-bot-token", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ token: process.env.VITE_VOICE_TEST_BOT_TOKEN || "" });
+});
+
 // Serve DeepFilterNet3 WASM/model assets (self-hosted to avoid CDN dependency)
 app.use("/df3-assets", express.static(path.join(__dirname, "df3-assets")));
 
