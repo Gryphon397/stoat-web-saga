@@ -2772,6 +2772,18 @@ class Voice {
       );
       return;
     }
+    // [Voice/H8] On ENABLING injection, snapshot the real room floor right now
+    // — the mic is still live and injection isn't active yet — and clear the
+    // rolling history so the held threshold reflects the actual room, not a
+    // value polluted by a prior injection run or a stale persisted setting.
+    // The early-return guard in #calibrateInputSensitivity keys off
+    // #injectedSource (still unset here), so this one cal runs on the real mic;
+    // every later cal during injection is held. Skipped on revert (node null)
+    // and on re-inject (already active → don't sample the bridge).
+    if (node && !this.#injectedSource && (this.#settings.inputSensitivityAuto ?? true) && this.#rawMicTrack) {
+      this.#calibrationHistory = [];
+      await this.#calibrateInputSensitivity(this.#rawMicTrack);
+    }
     this.#injectedSource = node;
     const room = this.room();
     const pub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
@@ -3655,6 +3667,15 @@ class Voice {
    * user never paused doesn't corrupt the threshold.
    */
   async #calibrateInputSensitivity(rawTrack: MediaStreamTrack): Promise<void> {
+    // [Voice/H8] Never adapt the threshold while TX injection is active. Under
+    // H5, #rawMicTrack is bridged to the injected (often looping) signal, which
+    // has no quiet frames — the P25 floor estimator would sample sustained
+    // speech, learn it as the noise floor, and ratchet the threshold up
+    // (observed -20 → -15 dBFS) until it gates the speech out. Hold the last
+    // real-mic-derived threshold for the duration; auto-cal resumes on revert.
+    // (The harness measures the pipeline, not the room floor — calibrating off
+    // the injected signal is meaningless anyway.)
+    if (this.#injectedSource) return;
     try {
       const ctx = new AudioContext({ sampleRate: 48000 });
       const src = ctx.createMediaStreamSource(new MediaStream([rawTrack]));

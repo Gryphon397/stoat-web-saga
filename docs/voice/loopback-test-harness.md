@@ -174,6 +174,40 @@ discriminator for a silent transmit is speech-vs-non-speech input + stage 05.
 
 Only after stage 03 tracks stage 01 do we trust the round trip and start **H6**.
 
+## H6 as-built (build 51) + live round-trip test
+
+Phantom shipped in `state.tsx`:
+
+- Token wiring: `VITE_VOICE_TEST_BOT_TOKEN` (compose `web-dev` env, **dev only**)
+  → `inject.js` → `window.__STOAT_VOICE_TEST_BOT_TOKEN__` (same pattern as the
+  debug-capture flag). Read by `#readVoiceTestBotToken()`.
+- `startPhantom()` mints a bot LiveKit token via `POST /channels/:id/join_call`
+  with `x-bot-token` + `{node:"worldwide", force_disconnect:false}` (both
+  required — `force_disconnect:true` → 403 `IsBot`; missing node → 400
+  `UnknownNode`), connects a **second** headless Room (`autoSubscribe:false`,
+  `publishDefaults` matched to the main room), and publishes a **clone** of the
+  `#inputGateDest` track. The clone is deliberate: the original is the user's
+  main-room publication, and stopping a shared track on phantom teardown would
+  kill the user's real audio.
+- `stopPhantom()` disconnects the phantom Room; also called from `disconnect()`.
+- Console hook: `window.stoatVoiceTest.startPhantom() / .stopPhantom()`.
+
+**Live round-trip test (acceptance for H6; only you can run it):**
+
+1. Join a voice channel **solo** (the pipeline output also leaves under your
+   identity on the main room; H7 will auto-mute that).
+2. Optionally `await window.stoatVoiceTest.injectUrl("<speech.wav>", {loop:true})`
+   to drive a known signal; otherwise the phantom carries your live mic.
+3. `await window.stoatVoiceTest.startPhantom()` → expect a remote participant
+   **voice-test-bot** to appear, and you should **hear** the TX→wire→RX round
+   trip through the normal receive path.
+4. `await window.stoatVoiceTest.stopPhantom()` to end; `revert()` to drop
+   injection.
+
+This is what no single-client setup can do otherwise — LiveKit never sends your
+own published track back to you, so the phantom's second identity is the round
+trip made audible.
+
 ## Relationship to other beads
 
 - **Voice/H2** (`StoatData-id5`, A/B harness) — complementary: H2 compares
