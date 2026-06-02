@@ -2936,6 +2936,36 @@ class Voice {
     }
   }
 
+  // ─── [Voice/H7] Loopback test-panel mic gating (dev-only) ─────────────────
+  // While the mixer plays an injected test signal, the panel must silence the
+  // user's REAL main-room publication so the test can't leak into the channel
+  // under their identity (mixer rule #5). The phantom (H6) publishes a CLONE of
+  // the pipeline output on a separate track whose `enabled` flag is independent,
+  // so muting the main publication here leaves the round trip audible. These
+  // helpers are the silent path: setMute()/toggleMute() emit mute/unmute chimes
+  // and rewrite #settings.micOn, neither of which we want for a transient test.
+
+  /** True if the real main-room mic publication is currently sending. */
+  get isMicPublicationEnabled(): boolean {
+    const room = this.room();
+    return !!room?.localParticipant.isMicrophoneEnabled;
+  }
+
+  /**
+   * Mute/unmute the main-room mic publication for the loopback harness WITHOUT
+   * the notification chimes and WITHOUT touching #settings.micOn — so the
+   * user's persisted mute preference survives the test and a normal
+   * toggleMute() afterwards still behaves. No-op outside a debug build or a
+   * live call, or when already in the requested state.
+   */
+  async setHarnessMicMuted(muted: boolean): Promise<void> {
+    if (!isDebugCaptureBuild()) return;
+    const room = this.room();
+    if (!room) return;
+    if (room.localParticipant.isMicrophoneEnabled !== muted) return; // already there
+    await room.localParticipant.setMicrophoneEnabled(!muted);
+  }
+
   /**
    * [STOAT-AGC] Live-update the AGC worklet without restarting the track.
    * No-ops when the gate isn't built yet — config will be applied on the

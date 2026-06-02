@@ -208,6 +208,56 @@ This is what no single-client setup can do otherwise — LiveKit never sends you
 own published track back to you, so the phantom's second identity is the round
 trip made audible.
 
+## H7 as-built (build 54) — layered mixer + dev test panel
+
+Supersedes the `window.stoatVoiceTest.injectUrl` console hook with a UI. Three
+new pieces:
+
+- **`loopbackMixer.ts`** (`components/rtc/`) — pure, dependency-free audio-graph
+  helpers: `downmixToMono`, `bufferPeakAmplitude`, `computeHeadroomScalar`
+  (= `min(1, 1/Σ(peak·gain))` over enabled sources — bounds the worst case of
+  every source peaking in the same sample, attenuates the whole mix by its
+  reciprocal so it can't clip past 0 dBFS while preserving the user's balance),
+  `buildMixGraph` (each source → per-source `GainNode` → master `GainNode`), and
+  `startAligned` (one `start(when)` for all sources → sample-aligned). The master
+  is the H5 injected head.
+- **`LoopbackTestPanel.tsx`** (voice settings) — import file(s) / record a take →
+  decoded on the **input-gate ctx** (`decodeAudioData` resamples to 48 kHz) and
+  downmixed to mono; per-source enable / gain / loop / remove; phantom start-stop;
+  Play / Stop. **Play** mutes the real publication (`setHarnessMicMuted`), wires
+  the master via `setInjectedTxSource`, then `startAligned` (0.1 s lead).
+  **Stop** stops the nodes, reverts injection, restores the prior mic state.
+  One-shot-only mixes auto-stop after the longest clip + tail; any loop bed holds
+  until Stop so the gate release tail is audible underneath.
+- **`state.tsx`** — `get isMicPublicationEnabled` + `async setHarnessMicMuted()`:
+  toggle the main-room publication **without** the mute/unmute chimes and without
+  touching `#settings.micOn`, so the test leaves the user's persisted preference
+  intact. Dev-gated.
+
+Rendered inside `VoiceProcessingOptions`' `showDebugSection` block, independent of
+the debug-capture checkbox.
+
+**Why the round trip survives injection:** `#inputGateDest` and its published
+track are created once and **reused** across every gate rebuild (state.tsx
+~2479), so toggling injection does not swap the track the phantom cloned — the
+clone keeps carrying whatever the pipeline now outputs. And the clone is an
+independent `MediaStreamTrack` (own `enabled` flag), so muting the main
+publication during Play leaves the phantom audible. **Order matters:** start the
+phantom (clones the *enabled* track) **before** Play mutes — the panel lays the
+buttons out in that order and the copy says so.
+
+**Live test (acceptance for H7; only you can run it):**
+
+1. Debug build, **Clear cache & reload**, confirm `[stoat-dev] build 54`.
+2. Join a voice channel **solo**. Settings → Voice Processing → **Loopback test**.
+3. Import a speech WAV (and optionally a noise/typing bed — toggle **Loop** on
+   the bed). **Start phantom** → `voice-test-bot` appears.
+4. **Play mix** → your real mic mutes; you hear the mixed signal round-tripped
+   through TX→wire→RX. Confirm no clipping (headroom note shows if it scaled).
+5. **Stop mix** restores the mic; **Stop phantom** ends. (STEP-4 stage-01
+   confidence check from the H5 section still applies if you want to re-verify
+   seam fidelity with debug capture armed.)
+
 ## Relationship to other beads
 
 - **Voice/H2** (`StoatData-id5`, A/B harness) — complementary: H2 compares

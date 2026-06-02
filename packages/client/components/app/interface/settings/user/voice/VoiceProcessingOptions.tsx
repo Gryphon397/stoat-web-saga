@@ -10,6 +10,8 @@ import type { ABHarnessSession, DebugCaptureSession } from "@revolt/rtc";
 import { useState } from "@revolt/state";
 import { Button, CategoryButton, Checkbox, Column, Slider, Text } from "@revolt/ui";
 
+import { LoopbackTestPanel } from "./LoopbackTestPanel";
+
 // [Voice/H2] Kill switch matches the J5/J6/J7 pattern. Hide the harness button
 // entirely when set so the user has a clean revert path if anything below
 // regresses. Default: feature on.
@@ -444,6 +446,11 @@ export function VoiceProcessingOptions() {
             </Show>
           </Column>
         </Show>
+
+        {/* [Voice/H7] Layered source mixer + loopback round-trip test panel.
+            Independent of the debug-capture checkbox above — only the debug
+            build gate (showDebugSection) hides it. */}
+        <LoopbackTestPanel />
       </Show>
     </Column>
   );

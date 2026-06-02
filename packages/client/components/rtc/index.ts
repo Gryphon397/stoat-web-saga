@@ -19,3 +19,13 @@ export type {
 // [Voice/H3] Rolling diagnostic ring buffer accessors.
 export { getVoiceDiagHistory, clearVoiceDiagHistory } from "./state";
 export type { VoiceDiagSnapshot } from "./state";
+
+// [Voice/H7] Layered source mixer helpers for the loopback test panel.
+export {
+  buildMixGraph,
+  bufferPeakAmplitude,
+  computeHeadroomScalar,
+  downmixToMono,
+  startAligned,
+} from "./loopbackMixer";
+export type { LoopbackMixGraph, LoopbackSourceSpec } from "./loopbackMixer";
