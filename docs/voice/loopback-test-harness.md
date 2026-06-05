@@ -224,18 +224,45 @@ new pieces:
 - **`LoopbackTestPanel.tsx`** (voice settings) — import file(s) / record a take →
   decoded on the **input-gate ctx** (`decodeAudioData` resamples to 48 kHz) and
   downmixed to mono; per-source enable / gain / loop / remove; phantom start-stop;
-  Play / Stop. **Play** mutes the real publication (`setHarnessMicMuted`), wires
-  the master via `setInjectedTxSource`, then `startAligned` (0.1 s lead).
-  **Stop** stops the nodes, reverts injection, restores the prior mic state.
+  Play / Stop. **Play** wires the master via `setInjectedTxSource` then
+  `startAligned` (0.1 s lead); **Stop** stops the nodes and reverts injection.
   One-shot-only mixes auto-stop after the longest clip + tail; any loop bed holds
-  until Stop so the gate release tail is audible underneath.
-- **`state.tsx`** — `get isMicPublicationEnabled` + `async setHarnessMicMuted()`:
-  toggle the main-room publication **without** the mute/unmute chimes and without
-  touching `#settings.micOn`, so the test leaves the user's persisted preference
-  intact. Dev-gated.
+  until Stop so the gate release tail is audible underneath. Also shows a live
+  **noise-suppression status** (DF3 active? NS on + level) so a "keyboard isn't
+  filtered" observation is diagnosable on the spot.
+- **`state.tsx`** — `#holdHarnessMic()` / `#releaseHarnessMic()`: mute the
+  main-room publication **without** the mute/unmute chimes and without touching
+  `#settings.micOn` (so the user's persisted preference survives). The mute is
+  owned by the **phantom + injection lifecycle**, not the Play button:
+  `startPhantom` holds it (after the clone is published), `setInjectedTxSource`
+  holds on inject / releases on revert, `stopPhantom` releases — and a release
+  only restores once **both** phantom and injection are inactive (either alone
+  keeps it muted). The snapshot of the prior state is taken on the first hold so
+  nested holds don't lose it. The phantom clone is **force-enabled**
+  (`phantomTrack.enabled = true`) so it transmits even if an injection muted the
+  main publication before the phantom started.
 
 Rendered inside `VoiceProcessingOptions`' `showDebugSection` block, independent of
 the debug-capture checkbox.
+
+**Why you still hear yourself with the bot active (not a bug):** the phantom
+plays back your *processed pipeline output* (live mic, or the injected clip) — the
+round trip is the whole point. The mute stops your **raw mic leaking to everyone
+else** on the main publication; it does not (and shouldn't) silence your own
+monitoring. The playback is **delayed** (network + jitter buffer) — that delay is
+the tell that you're hearing the real round trip, not an instantaneous sidetone
+(there is no sidetone path; the only audio you hear is the phantom via RX).
+
+**Keyboard clicks are the engine-parity gap, not an H7 bug or a tuning fix.**
+What you hear through the bot is exactly what others would hear, so the round trip
+is the first place DF3's real performance is audible. Triage with the NS-status
+line: DF3 inactive → bug; NS off → turn it on. But DF3 is weak on **sharp
+transients** (keyboard clicks) where Krisp is strong — we have *topological*
+parity, not *engine* parity. One NS-level bump is a fair cheap test against an
+identical injected keyboard bed; if clicks persist at a sensible level, **stop and
+file against engine-parity / A7**, not here. Note the gate interaction: a loud
+click can spike above the input-gate threshold and pop the gate open, so an
+undersuppressed click both leaks and trips onset — also parity/onset scope.
 
 **Why the round trip survives injection:** `#inputGateDest` and its published
 track are created once and **reused** across every gate rebuild (state.tsx
@@ -248,15 +275,17 @@ buttons out in that order and the copy says so.
 
 **Live test (acceptance for H7; only you can run it):**
 
-1. Debug build, **Clear cache & reload**, confirm `[stoat-dev] build 54`.
+1. Debug build, **Clear cache & reload**, confirm `[stoat-dev] build 55`.
 2. Join a voice channel **solo**. Settings → Voice Processing → **Loopback test**.
-3. Import a speech WAV (and optionally a noise/typing bed — toggle **Loop** on
-   the bed). **Start phantom** → `voice-test-bot` appears.
-4. **Play mix** → your real mic mutes; you hear the mixed signal round-tripped
-   through TX→wire→RX. Confirm no clipping (headroom note shows if it scaled).
-5. **Stop mix** restores the mic; **Stop phantom** ends. (STEP-4 stage-01
-   confidence check from the H5 section still applies if you want to re-verify
-   seam fidelity with debug capture armed.)
+   Check the **noise-suppression status** line reads "DF3 active · on (level N)".
+3. **Start phantom** → `voice-test-bot` appears and your real mic mutes to the
+   channel (mic indicator). You now hear your live mic round-tripped — type/talk
+   to judge it. (Optional) import a speech WAV + a noise/typing bed (toggle
+   **Loop** on the bed), then **Play mix** to inject a known signal instead.
+4. Confirm no clipping (the status note shows if the mix was headroom-scaled).
+5. **Stop mix** (if playing); **Stop phantom** restores your mic. (STEP-4
+   stage-01 confidence check from the H5 section still applies if you want to
+   re-verify seam fidelity with debug capture armed.)
 
 ## Relationship to other beads
 

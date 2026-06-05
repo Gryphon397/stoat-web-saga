@@ -1103,6 +1103,11 @@ class Voice {
   // autoSubscribe:false (the phantom is headless — it never plays audio and
   // must not subscribe to itself or anyone). Null when not running. Dev-only.
   #phantomRoom: Room | null = null;
+  // [Voice/H7] Snapshot of the real main-room publication's enabled state taken
+  // when the harness first mutes it (phantom start or injection). Restored only
+  // once BOTH phantom and injection are inactive again. null = not currently
+  // held by the harness.
+  #harnessMicWasEnabled: boolean | null = null;
   // Active debug-capture session (null when none in progress).
   #captureSession: DebugCaptureSession | null = null;
   // Set by debug capture if applyMicConstraints fires while a capture is
@@ -2798,6 +2803,10 @@ class Voice {
     // Rebuild the gate against the current published track. The injected head
     // replaces the mic; everything downstream is rewired unchanged.
     await this.#applyInputGate(track);
+    // [Voice/H7] An active injection must not leak out the main publication;
+    // reverting releases the hold (unless the phantom still needs it muted).
+    if (node) await this.#holdHarnessMic();
+    else await this.#releaseHarnessMic();
     console.log(
       `[Voice/H5] TX injection ${node ? "ENABLED" : "reverted to mic"}`,
     );
@@ -2905,6 +2914,12 @@ class Voice {
     // track would kill the user's real audio. The clone carries the same
     // dest-node output but its lifecycle is the phantom's alone.
     const phantomTrack = track.clone();
+    // [Voice/H7] Force the clone enabled, independent of the source track's
+    // mute state. If an injection (Play) muted the main publication BEFORE the
+    // phantom started, the clone would otherwise be born from a disabled track
+    // and transmit silence. enabled is per-track, so this only re-opens the
+    // clone; the dest node keeps producing samples regardless.
+    phantomTrack.enabled = true;
     try {
       await room.connect(url, token, { autoSubscribe: false });
       await room.localParticipant.publishTrack(phantomTrack, {
@@ -2919,10 +2934,17 @@ class Voice {
       return;
     }
     this.#phantomRoom = room;
+    // [Voice/H7] The clone was published from the still-enabled dest track
+    // above; NOW mute the user's real publication so their raw mic doesn't also
+    // leak into the channel under their identity while the bot is present. The
+    // clone's enabled flag is independent, so the phantom keeps transmitting.
+    // You'll still HEAR yourself — that's the round trip (the phantom's
+    // processed output played back), which is the whole point.
+    await this.#holdHarnessMic();
     console.warn(
       "[Voice/H6] phantom CONNECTED as voice-test-bot, publishing the TX " +
-      "output. You should hear it as a remote participant. Run solo/muted so " +
-      "the round trip isn't doubled. window.stoatVoiceTest.stopPhantom() to end.",
+      "output. Your real mic is now muted to the channel; what you hear is the " +
+      "phantom's round trip. window.stoatVoiceTest.stopPhantom() to end.",
     );
   }
 
@@ -2934,36 +2956,59 @@ class Voice {
       try { await room.disconnect(); } catch { /* ignore */ }
       console.log("[Voice/H6] phantom disconnected");
     }
+    // [Voice/H7] Restore the real publication now the bot is gone (unless an
+    // injection is still playing, in which case it stays muted).
+    await this.#releaseHarnessMic();
   }
 
-  // ─── [Voice/H7] Loopback test-panel mic gating (dev-only) ─────────────────
-  // While the mixer plays an injected test signal, the panel must silence the
-  // user's REAL main-room publication so the test can't leak into the channel
-  // under their identity (mixer rule #5). The phantom (H6) publishes a CLONE of
-  // the pipeline output on a separate track whose `enabled` flag is independent,
-  // so muting the main publication here leaves the round trip audible. These
-  // helpers are the silent path: setMute()/toggleMute() emit mute/unmute chimes
-  // and rewrite #settings.micOn, neither of which we want for a transient test.
-
-  /** True if the real main-room mic publication is currently sending. */
-  get isMicPublicationEnabled(): boolean {
-    const room = this.room();
-    return !!room?.localParticipant.isMicrophoneEnabled;
-  }
+  // ─── [Voice/H7] Loopback harness mic gating (dev-only) ────────────────────
+  // While the loopback bot is in the channel (phantom active) OR an injected
+  // test signal is playing, the user's REAL main-room publication must be
+  // silenced so their raw mic doesn't ALSO leak into the channel under their
+  // identity — they'd be doubled for everyone else, and locally the only thing
+  // they should hear is the phantom's processed round trip. The phantom (H6)
+  // publishes a CLONE of the pipeline output on a separate track whose
+  // `enabled` flag is independent, so muting the main publication here leaves
+  // the round trip audible.
+  //
+  // This is the silent path: setMute()/toggleMute() emit mute/unmute chimes and
+  // rewrite #settings.micOn, neither of which we want for a transient test, so
+  // the user's persisted mute preference survives and a later toggleMute()
+  // still behaves. ORDER matters: callers must publish the phantom clone (born
+  // from the still-ENABLED dest track) BEFORE calling #holdHarnessMic, or the
+  // clone is born muted and the phantom transmits silence.
 
   /**
-   * Mute/unmute the main-room mic publication for the loopback harness WITHOUT
-   * the notification chimes and WITHOUT touching #settings.micOn — so the
-   * user's persisted mute preference survives the test and a normal
-   * toggleMute() afterwards still behaves. No-op outside a debug build or a
-   * live call, or when already in the requested state.
+   * Mute the real main-room publication for the harness, snapshotting its prior
+   * state the first time (so nested holds — phantom + injection — don't lose the
+   * original). No-op outside a debug build / live call, or if already held.
    */
-  async setHarnessMicMuted(muted: boolean): Promise<void> {
+  async #holdHarnessMic(): Promise<void> {
     if (!isDebugCaptureBuild()) return;
     const room = this.room();
     if (!room) return;
-    if (room.localParticipant.isMicrophoneEnabled !== muted) return; // already there
-    await room.localParticipant.setMicrophoneEnabled(!muted);
+    if (this.#harnessMicWasEnabled === null) {
+      this.#harnessMicWasEnabled = room.localParticipant.isMicrophoneEnabled;
+    }
+    if (room.localParticipant.isMicrophoneEnabled) {
+      await room.localParticipant.setMicrophoneEnabled(false);
+    }
+  }
+
+  /**
+   * Restore the real publication to its pre-harness state — but ONLY once
+   * neither the phantom nor an injection is still active (either alone is reason
+   * to stay muted). Idempotent; clears the snapshot once restored.
+   */
+  async #releaseHarnessMic(): Promise<void> {
+    if (this.#phantomRoom || this.#injectedSource) return; // still needed
+    const restore = this.#harnessMicWasEnabled;
+    this.#harnessMicWasEnabled = null;
+    if (restore !== true) return; // wasn't sending before, or nothing to do
+    const room = this.room();
+    if (room && !room.localParticipant.isMicrophoneEnabled) {
+      await room.localParticipant.setMicrophoneEnabled(true);
+    }
   }
 
   /**
