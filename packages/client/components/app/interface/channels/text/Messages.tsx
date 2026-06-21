@@ -273,7 +273,7 @@ export function Messages(props: Props) {
       }
 
       // Stop collecting messages
-      collectedMessages = [];
+      collectedMessages = undefined;
 
       // Mark as fetching has ended
       setFetching();
@@ -509,7 +509,7 @@ export function Messages(props: Props) {
         );
 
         // Stop collecting messages
-        collectedMessages = [];
+        collectedMessages = undefined;
 
         // Animate scroll to bottom
         setTimeout(() => {
@@ -653,6 +653,10 @@ export function Messages(props: Props) {
    * @param message Message object
    */
   function onMessage(message: MessageInterface) {
+    if (collectedMessages) {
+      collectedMessages.push(message);
+      return;
+    }
     if (message.channelId === props.channel.id && atEnd()) {
       setMessages([message, ...messages()]);
     }
