@@ -716,7 +716,7 @@ export function Messages(props: Props) {
         if (
           state === State.Connected &&
           atEnd() &&
-          !props.highlightedMessageId
+          !props.highlightedMessageId()
         ) {
           caseInitialLoad();
         }
