@@ -41,8 +41,11 @@ export class LinkSafety extends AbstractStore<"linkSafety", TypeLinkSafety> {
   clean(input: Partial<TypeLinkSafety>): TypeLinkSafety {
     return {
       savedOrigins:
-        input.savedOrigins?.filter((origin) => typeof origin === "string") ??
-        [],
+        input.savedOrigins?.filter(
+          // "null" is the opaque origin of javascript:/data:/blob: URLs; it may
+          // already be persisted from before the trust() guard was added.
+          (origin) => typeof origin === "string" && origin !== "null",
+        ) ?? [],
     };
   }
 
@@ -52,7 +55,9 @@ export class LinkSafety extends AbstractStore<"linkSafety", TypeLinkSafety> {
    * @returns Whether it's trusted
    */
   isTrusted(url: URL) {
-    return this.get().savedOrigins.includes(url.origin);
+    return (
+      url.origin !== "null" && this.get().savedOrigins.includes(url.origin)
+    );
   }
 
   /**
@@ -60,6 +65,8 @@ export class LinkSafety extends AbstractStore<"linkSafety", TypeLinkSafety> {
    * @param url URL
    */
   trust(url: URL) {
-    this.set("savedOrigins", [...this.get().savedOrigins, url.origin]);
+    if (url.origin !== "null") {
+      this.set("savedOrigins", [...this.get().savedOrigins, url.origin]);
+    }
   }
 }

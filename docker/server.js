@@ -12,6 +12,11 @@ const DIST = path.join(__dirname, "dist_injected");
 
 const app = express();
 
+// Match a hostname against a registrable domain, exactly or as a subdomain.
+// Must not be a bare endsWith(): that also accepts "evil<domain>" lookalikes.
+const isHost = (hostname, domain) =>
+  hostname === domain || hostname.endsWith(`.${domain}`);
+
 // Log every request
 app.use((req, _res, next) => {
   console.log(req.method, req.url);
@@ -34,7 +39,7 @@ app.get("/decoration-proxy", async (req, res) => {
   if (!url) return res.status(400).end("missing url");
   let parsed;
   try { parsed = new URL(url); } catch { return res.status(400).end("invalid url"); }
-  if (!parsed.hostname.endsWith("discordapp.com") || !parsed.pathname.startsWith("/avatar-decoration-presets/")) {
+  if (parsed.protocol !== "https:" || !isHost(parsed.hostname, "discordapp.com") || !parsed.pathname.startsWith("/avatar-decoration-presets/")) {
     return res.status(400).end("disallowed url");
   }
   try {
@@ -78,10 +83,10 @@ app.get("/gif-proxy", async (req, res) => {
   if (!url) {
     return res.status(400).end("missing url");
   }
-  let parsedHost;
-  try { parsedHost = new URL(url).hostname; } catch { return res.status(400).end("invalid url"); }
-  if (!url.startsWith("https://") || !parsedHost.endsWith("klipy.com")) {
-    console.log("gif-proxy blocked:", parsedHost);
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).end("invalid url"); }
+  if (parsed.protocol !== "https:" || !isHost(parsed.hostname, "klipy.com")) {
+    console.log("gif-proxy blocked:", parsed.hostname);
     return res.status(400).end("disallowed host");
   }
   try {
