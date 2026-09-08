@@ -50,13 +50,6 @@ const hoverStyles = cva({
 });
 
 /**
- * Return the CSS class string for a scrollable container (without attaching events)
- */
-export function scrollableStyles(opts?: { direction?: "x" | "y"; showOnHover?: boolean }) {
-  return baseStyles({ direction: opts?.direction, showOnHover: opts?.showOnHover });
-}
-
-/**
  * Add styles and events for a scrollable container
  * @param el Element
  * @param accessor Parameters
