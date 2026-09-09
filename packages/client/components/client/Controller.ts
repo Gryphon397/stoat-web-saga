@@ -611,6 +611,20 @@ export default class ClientController {
   }
 
   logout() {
+    // Invalidate the session server-side, not just locally. Upstream 21c64ced
+    // put this in Lifecycle.dispose(), but our dispose() is also reached via
+    // TransitionType.DisposeOnly from ClientContext's onCleanup — putting it
+    // there would revoke the session on an ordinary unmount or dev HMR pass.
+    //
+    // Fire-and-forget: a failed revoke must not strand the user logged in
+    // locally. Client.logout() also tears down listeners and disconnects,
+    // which dispose() then repeats harmlessly.
+    this.getCurrentClient()
+      ?.logout()
+      .catch((error) =>
+        console.error("Failed to revoke session on logout", error),
+      );
+
     this.state.auth.removeSession();
     this.lifecycle.transition({
       type: TransitionType.Logout,
