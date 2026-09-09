@@ -131,7 +131,8 @@ function ManageCurrentSession(props: { otherSessions: Accessor<Session[]> }) {
  * List other logged in sessions
  */
 function ListOtherSessions(props: { otherSessions: Accessor<Session[]> }) {
-  const { openModal } = useModals();
+  const { openModal, mfaFlow } = useModals();
+  const client = useClient();
 
   return (
     <Show when={props.otherSessions().length}>
@@ -163,7 +164,14 @@ function ListOtherSessions(props: { otherSessions: Accessor<Session[]> }) {
                 <CategoryButton
                   icon="blank"
                   action="chevron"
-                  onClick={() => session.delete()}
+                  onClick={() => {
+                    // stoat.js 0.15 requires an MFA ticket to revoke a session
+                    (async () => {
+                      const mfa = await client().account.mfa();
+                      const ticket = await mfaFlow(mfa as never);
+                      session.delete(ticket!);
+                    })();
+                  }}
                 >
                   <Trans>Log Out</Trans>
                 </CategoryButton>

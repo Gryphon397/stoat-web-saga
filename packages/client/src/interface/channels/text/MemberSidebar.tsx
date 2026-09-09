@@ -88,9 +88,11 @@ export function ServerMemberSidebar(props: Props) {
     on(
       () => props.channel.serverId,
       (serverId) =>
+        // The old second argument (a 200-user cap) is gone: stoat.js 0.15
+        // replaced that hack with out-of-batch hydration (upstream ee0a9803),
+        // which is what the cap was working around.
         props.channel.server?.syncMembers(
           LARGE_SERVERS.includes(serverId) ? true : false,
-          200,
         ),
     ),
   );

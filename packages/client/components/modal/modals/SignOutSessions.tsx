@@ -1,6 +1,7 @@
 import { Trans } from "@lingui-solid/solid/macro";
 import { useMutation } from "@tanstack/solid-query";
 
+import { useClient } from "@revolt/client";
 import { Dialog, DialogProps } from "@revolt/ui";
 
 import { useModals } from "..";
@@ -12,10 +13,16 @@ import { Modals } from "../types";
 export function SignOutSessionsModal(
   props: DialogProps & Modals & { type: "sign_out_sessions" },
 ) {
-  const { showError } = useModals();
+  const { showError, mfaFlow } = useModals();
+  const client = useClient();
 
   const signOutSessions = useMutation(() => ({
-    mutationFn: () => props.client.sessions.deleteAll(),
+    // stoat.js 0.15 requires an MFA ticket to revoke sessions
+    mutationFn: async () => {
+      const mfa = await client().account.mfa();
+      const ticket = await mfaFlow(mfa as never);
+      await props.client.sessions.deleteAll(ticket!);
+    },
     onError: showError,
   }));
 

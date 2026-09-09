@@ -4,7 +4,7 @@ Both submodules here point at upstream repos we do **not** own:
 
 | Submodule | Origin | Pinned base |
 |-----------|--------|-------------|
-| `packages/stoat.js` | `stoatchat/javascript-client-sdk` | `e1a9c8a8` |
+| `packages/stoat.js` | `stoatchat/javascript-client-sdk` | `44d45ade` |
 | `packages/solid-livekit-components` | `revoltchat/solid-livekit-components` | `e2831713` |
 
 We carry local fixes in both. Because we can't push to either origin, the
@@ -40,11 +40,17 @@ git -C packages/stoat.js format-patch -1 --stdout stoat-fork \
 
 ## Caveat
 
-`git am` will fail if the pinned base moves. `packages/stoat.js` is 42
-commits behind upstream and a bump is tracked in `StoatData-42o`; when that
-lands, these patches must be rebased onto the new base rather than reapplied
-blind. The `stoat.js` patch touches `EventClient.ts` and `events/v1.ts`,
-which upstream has been actively changing.
+`git am` will fail if the pinned base moves. When you bump a base, the patch
+must be **rebased** onto it, not reapplied blind.
+
+`packages/stoat.js` was bumped from `e1a9c8a8` to `44d45ade` on 2026-09-09
+under `StoatData-42o` (47 upstream commits). The patch touches
+`EventClient.ts`, `events/v1.ts`, `classes/Server.ts` and `classes/User.ts`,
+all of which upstream changes regularly — `Server.syncMembers` in particular
+was rewritten upstream (`ee0a9803`) and the fork hunk had to be reworked
+around the new `hydrateIfNotHas`/`addHydratedUser` split.
+
+`packages/solid-livekit-components` is still on its original base.
 
 ## Why `git status` shows both submodules as modified
 

@@ -1,10 +1,10 @@
-From 43aec102d9508fd8268b4bf4a7bdef6008790d2f Mon Sep 17 00:00:00 2001
+From 989f98fe3e92a5874e488c26b7b452cceee09150 Mon Sep 17 00:00:00 2001
 From: Gryphon397 <jgfillman@gmail.com>
 Date: Tue, 8 Sep 2026 22:39:39 -0400
 Subject: [PATCH] stoat: voice-state ready handling, online propagation,
  availability status
 
-Fork-local changes to the API client, carried on top of e1a9c8a8.
+Fork-local changes to the API client, carried on top of 44d45ade.
 
 - EventClient: request the full 'ready' field set explicitly. Specifying
   any ready param switches the server into selective mode, so asking for
@@ -14,44 +14,66 @@ Fork-local changes to the API client, carried on top of e1a9c8a8.
   and only for participants whose user is already hydrated. Applying them
   inline raced the UI's first render and produced voice tiles with no
   user data.
-- Server: propagate the online flag when hydrating users from a member
-  fetch; getOrCreate alone left presence stale.
+- Server.syncMembers: propagate the online flag when hydrating users from
+  a member fetch. Upstream's hydrateIfNotHas() returns undefined for users
+  already in the collection, so their presence is never refreshed; collect
+  those and update them inside the existing batch() rather than in the
+  hydration loop, which upstream deliberately keeps out of batch.
 - User.statusMessage: render the Stoat '__avail__<epoch_ms>' status-text
   convention as 'Available in Xm/Xh' or 'Available at HH:MM'.
 
 Not pushable -- origin is stoatchat/javascript-client-sdk, which we do
 not own. Patch is vendored in the parent repo under patches/submodules/.
 ---
- src/classes/Server.ts     |  8 +++++---
+ src/classes/Server.ts     | 13 +++++++++++++
  src/classes/User.ts       | 22 ++++++++++++++++++----
  src/events/EventClient.ts | 21 ++++++++-------------
  src/events/v1.ts          | 39 ++++++++++++++++++++++++---------------
- 4 files changed, 55 insertions(+), 35 deletions(-)
+ 4 files changed, 63 insertions(+), 32 deletions(-)
 
 diff --git a/src/classes/Server.ts b/src/classes/Server.ts
-index 72218942..98ef3a60 100644
+index f732291a..ffe951b9 100644
 --- a/src/classes/Server.ts
 +++ b/src/classes/Server.ts
-@@ -711,9 +711,11 @@ export class Server {
+@@ -688,6 +688,7 @@ export class Server {
+ 
+     const newUsers: HydratedUser[] = [];
+     const newServerMembers: HydratedServerMember[] = [];
++    const stalePresence: { id: string; online: boolean }[] = [];
+ 
+     for (let i = 0; i < data.users.length; i++) {
+       const user = data.users[i];
+@@ -698,6 +699,8 @@ export class Server {
+         );
+         if (newUser) {
+           newUsers.push(newUser);
++        } else {
++          stalePresence.push({ id: user._id, online: !!user.online });
          }
-       } else {
-         for (let i = 0; i < data.users.length; i++) {
--          this.#collection.client.users.getOrCreate(
--            data.users[i]._id,
--            data.users[i],
-+          const userData = data.users[i];
-+          this.#collection.client.users.getOrCreate(userData._id, userData);
-+          this.#collection.client.users.updateUnderlyingObject(
-+            userData._id,
-+            { online: userData.online } as never,
-           );
-           this.#collection.client.serverMembers.getOrCreate(
-             data.members[i]._id,
+         const newMember = this.#collection.client.serverMembers.hydrateIfNotHas(
+           data.members[i]._id,
+@@ -713,6 +716,16 @@ export class Server {
+       for (const newUser of newUsers) {
+         this.#collection.client.users.addHydratedUser(newUser);
+       }
++      // Users already fully in the collection are skipped by hydrateIfNotHas,
++      // so their presence would go stale. Refresh it here, inside the batch,
++      // rather than in the hydration loop above (which is deliberately kept
++      // out of batch()).
++      for (const { id, online } of stalePresence) {
++        this.#collection.client.users.updateUnderlyingObject(
++          id,
++          { online } as never,
++        );
++      }
+       for (const newServerMember of newServerMembers) {
+         this.#collection.client.serverMembers.addHydratedServerMember(
+           newServerMember,
 diff --git a/src/classes/User.ts b/src/classes/User.ts
-index 296650f5..72193b0f 100644
+index 2fe8cfe8..fa02a090 100644
 --- a/src/classes/User.ts
 +++ b/src/classes/User.ts
-@@ -177,10 +177,24 @@ export class User {
+@@ -199,10 +199,24 @@ export class User {
    statusMessage(
      translate: (presence: Presence) => string = (a) => a,
    ): string | undefined {
@@ -81,7 +103,7 @@ index 296650f5..72193b0f 100644
  
    /**
 diff --git a/src/events/EventClient.ts b/src/events/EventClient.ts
-index e6f37f12..8146459a 100644
+index 93b620a3..37806cf0 100644
 --- a/src/events/EventClient.ts
 +++ b/src/events/EventClient.ts
 @@ -161,19 +161,14 @@ export class EventClient<
@@ -113,10 +135,10 @@ index e6f37f12..8146459a 100644
      this.#socket = new WebSocket(url);
  
 diff --git a/src/events/v1.ts b/src/events/v1.ts
-index eb51b2f4..67fa40d2 100644
+index 868a472f..10dfe818 100644
 --- a/src/events/v1.ts
 +++ b/src/events/v1.ts
-@@ -304,21 +304,6 @@ export async function handleEvent(
+@@ -319,21 +319,6 @@ export async function handleEvent(
            }
          }
  
@@ -138,7 +160,7 @@ index eb51b2f4..67fa40d2 100644
          if (event.emojis) {
            for (const emoji of event.emojis) {
              client.emojis.getOrCreate(emoji._id, emoji);
-@@ -333,6 +318,30 @@ export async function handleEvent(
+@@ -348,6 +333,30 @@ export async function handleEvent(
        setReady(true);
        client.emit("ready");
  

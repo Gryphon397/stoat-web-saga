@@ -28,14 +28,9 @@ export function useError() {
       (error as { type?: never } | undefined)?.type &&
       typeof (error as { type: never }).type === "string"
     ) {
-      const err = error as
-        | API.Error
-        | Exclude<
-            API.Authifier_Error,
-            | { type: "UnknownUser" }
-            | { type: "DatabaseError" }
-            | { type: "InternalError" }
-          >;
+      // stoat-api 0.15.x folded the former Authifier_Error variants into
+      // API.Error and stopped exporting the Authifier namespace.
+      const err = error as API.Error;
 
       switch (err.type) {
         case "AlreadyFriends":

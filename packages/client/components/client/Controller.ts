@@ -136,30 +136,46 @@ class Lifecycle {
         this.#controller.state.notifications.isChannelMuted(channel),
     });
 
-    this.client.configuration = {
-      revolt: String(),
-      app: String(),
-      build: {} as never,
-      features: {
-        autumn: {
-          enabled: true,
-          url: CONFIGURATION.DEFAULT_MEDIA_URL,
+    // stoat.js 0.15 made Client.configuration readonly — it now expects
+    // initConfig() to populate it from GET /. We keep the baked self-hosted
+    // config so startup does not depend on that request succeeding, and assign
+    // through Object.assign to get past the readonly modifier. Note this leaves
+    // client.configured() false, so consumers gated on it (Composition's
+    // upload-size lookup, FlowCreate's invite_only check) stay on their
+    // fallbacks — same as before the bump.
+    Object.assign(this.client, {
+      configuration: {
+        revolt: String(),
+        app: String(),
+        build: {} as never,
+        features: {
+          autumn: {
+            enabled: true,
+            url: CONFIGURATION.DEFAULT_MEDIA_URL,
+          },
+          january: {
+            enabled: true,
+            url: CONFIGURATION.DEFAULT_PROXY_URL,
+          },
+          captcha: {} as never,
+          email: true,
+          invite_only: false,
+          livekit: {
+            enabled: false,
+            nodes: [],
+          },
+          // Added in stoat-api 0.15; unreachable while configured() is false.
+          limits: {} as never,
+          legal_links: {
+            terms_of_service: String(),
+            privacy_policy: String(),
+            guidelines: String(),
+          },
         },
-        january: {
-          enabled: true,
-          url: CONFIGURATION.DEFAULT_PROXY_URL,
-        },
-        captcha: {} as never,
-        email: true,
-        invite_only: false,
-        livekit: {
-          enabled: false,
-          nodes: [],
-        },
-      },
-      vapid: String(),
-      ws: CONFIGURATION.DEFAULT_WS_URL,
-    };
+        vapid: String(),
+        ws: CONFIGURATION.DEFAULT_WS_URL,
+      } satisfies API.RevoltConfig,
+    });
 
     this.client.events.on("state", this.onState);
     this.client.on("ready", this.onReady);
