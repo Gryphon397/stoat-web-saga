@@ -60,7 +60,7 @@ export function UserContextMenu(props: {
    * Open direct message channel
    */
   function openDm() {
-    props.user.openDM().then((channel) => navigate(channel.url));
+    props.user.openDM().then((channel) => navigate(`/channel/${channel.id}`));
   }
 
   /**
@@ -71,6 +71,30 @@ export function UserContextMenu(props: {
       type: "delete_channel",
       channel: props.channel!,
     });
+  }
+
+  /**
+   * Remove user from group
+   */
+  function removeMember() {
+    openModal({
+      type: "remove_member",
+      user: props.user,
+      group: props.channel!,
+    });
+  }
+
+  /**
+   * Whether the user can be removed from the current group
+   */
+  function canRemoveMemberFromGroup() {
+    return (
+      props.channel?.type === "Group" &&
+      !props.user.self &&
+      props.channel.owner?.id !== props.user.id &&
+      (props.channel.havePermission("ManageChannel") ||
+        props.channel.owner?.self)
+    );
   }
 
   /**
@@ -241,7 +265,7 @@ export function UserContextMenu(props: {
           <Trans>Mention</Trans>
         </ContextMenuButton>
       </Show>
-      <Show when={props.user.relationship === "Friend"}>
+      <Show when={props.user.relationship === "Friend" || props.user.bot}>
         <ContextMenuButton icon={MdChat} onClick={openDm}>
           <Trans>Message</Trans>
         </ContextMenuButton>
@@ -250,6 +274,7 @@ export function UserContextMenu(props: {
       <Show
         when={
           props.user.relationship === "Friend" ||
+          props.user.bot ||
           (props.channel &&
             (props.channel.type === "DirectMessage" ||
               props.channel.type === "TextChannel"))
@@ -328,6 +353,16 @@ export function UserContextMenu(props: {
         </Show>
       </Show>
 
+      <Show when={canRemoveMemberFromGroup()}>
+        <ContextMenuButton
+          icon={MdPersonRemove}
+          onClick={removeMember}
+          destructive
+        >
+          Remove Member
+        </ContextMenuButton>
+      </Show>
+
       <Show
         when={
           !props.user.self &&
@@ -346,9 +381,11 @@ export function UserContextMenu(props: {
       </Show>
 
       <Show when={!props.user.self}>
-        <ContextMenuButton icon={MdReport} onClick={reportUser} destructive>
-          <Trans>Report user</Trans>
-        </ContextMenuButton>
+        <Show when={!props.user.privileged}>
+          <ContextMenuButton icon={MdReport} onClick={reportUser} destructive>
+            <Trans>Report user</Trans>
+          </ContextMenuButton>
+        </Show>
         {/* TODO: #286 show profile / message */}
         <Show when={props.user.relationship === "None" && !props.user.bot}>
           <ContextMenuButton icon={MdPersonAddAlt} onClick={addFriend}>

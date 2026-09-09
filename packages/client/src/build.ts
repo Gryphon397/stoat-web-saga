@@ -2,4 +2,4 @@
 // can verify they're not seeing a cached older bundle: console will show
 // `[stoat-dev] build N`. Imported wherever the build number is needed
 // (e.g. voice debug capture metadata).
-export const BUILD = 58;
+export const BUILD = 59;

@@ -225,6 +225,11 @@ export type Modals =
       acknowledge: () => Promise<void>;
     }
   | {
+      type: "remove_member";
+      user: User;
+      group: Channel;
+    }
+  | {
       type: "rename_session";
       session: Session;
     }

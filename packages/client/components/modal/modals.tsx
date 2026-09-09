@@ -47,6 +47,7 @@ import { MFAFlowModal } from "./modals/MFAFlow";
 import { MFARecoveryModal } from "./modals/MFARecovery";
 import { OnboardingModal } from "./modals/Onboarding";
 import { PolicyChangeModal } from "./modals/PolicyChange";
+import { RemoveMemberModal } from "./modals/RemoveMember";
 import { RenameSessionModal } from "./modals/RenameSession";
 import { ReportContentModal } from "./modals/ReportContent";
 import { ResetBotTokenModal } from "./modals/ResetBotToken";
@@ -163,6 +164,8 @@ export function RenderModal(props: ActiveModal & { onClose: () => void }) {
       return <OnboardingModal {...modalProps} />;
     case "policy_change":
       return <PolicyChangeModal {...modalProps} />;
+    case "remove_member":
+      return <RemoveMemberModal {...modalProps} />;
     case "rename_session":
       return <RenameSessionModal {...modalProps} />;
     case "report_content":
