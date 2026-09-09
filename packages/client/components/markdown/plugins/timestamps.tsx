@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "solid-js";
+import { createMemo } from "solid-js";
 
 import { type Dayjs } from "dayjs";
 import type { Handler } from "mdast-util-to-hast";
@@ -6,6 +6,7 @@ import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 
 import { dayjs, timeLocale } from "@revolt/i18n/dayjs";
+import { useState } from "@revolt/state";
 
 import { time as Time } from "../elements";
 
@@ -30,16 +31,14 @@ export function RenderTimestamp(props: { format: string; date: Dayjs }) {
     }
   }
 
-  // Signal for current value
-  const [value, setValue] = createSignal(format());
-  const update = () => setValue(format());
+  const { datePerMinute } = useState();
 
-  createEffect(() => {
-    // Update every second if we are rendering relative time
-    if (props.format === "R") {
-      const interval = setInterval(update, 1000);
-      return () => clearInterval(interval);
-    }
+  // Only relative timestamps need to re-render as time passes. The previous
+  // createEffect returned a "cleanup" that Solid never calls, so every
+  // relative timestamp leaked a 1 Hz interval for the life of the page.
+  const value = createMemo(() => {
+    if (props.format === "R") datePerMinute();
+    return format();
   });
 
   return (

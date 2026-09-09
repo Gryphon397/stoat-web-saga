@@ -1,4 +1,5 @@
 import {
+  Accessor,
   JSX,
   Show,
   createContext,
@@ -48,6 +49,20 @@ export class State {
   private store: Store;
   private setStore: SetStoreFunction<Store>;
   private writeQueue: Record<string, number>;
+
+  /**
+   * A reactive Date() that ticks once a minute.
+   *
+   * One shared clock for the whole app. Everything that renders a relative
+   * time used to run its own 1 Hz setInterval, so a screenful of messages
+   * meant dozens of timers, and the ones in RenderTimestamp were never
+   * cleared at all (an effect's return value is not a cleanup in Solid).
+   */
+  datePerMinute: Accessor<Date> = (() => {
+    const [date, setDate] = createSignal(new Date());
+    setInterval(() => setDate(new Date()), 6e4);
+    return date;
+  })();
 
   // define all stores
   auth = new Auth(this);

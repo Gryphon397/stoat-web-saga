@@ -1,4 +1,4 @@
-import { Accessor, createSignal } from "solid-js";
+import { Accessor, createMemo } from "solid-js";
 
 import { Channel, Server } from "stoat.js";
 
@@ -76,13 +76,9 @@ export class NotificationOptions extends AbstractStore<
   constructor(state: State) {
     super(state, "notifications");
 
-    // memory leak? -- maybe this should be a global util somewhere
-    // todo: refactor
-    const [now, setNow] = createSignal<number>(+new Date());
-    this.#now = now;
-
-    // update every minute
-    setInterval(() => setNow(+new Date()), 6e3);
+    // Shared app-wide clock; the old private setInterval was never cleared
+    // and, despite the comment, ran every 6 seconds rather than every minute.
+    this.#now = createMemo(() => +state.datePerMinute());
   }
 
   /**
