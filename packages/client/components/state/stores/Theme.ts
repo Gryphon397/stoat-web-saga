@@ -75,7 +75,14 @@ export type TypeTheme = {
   messageGroupSpacing: number;
 };
 
-export type SelectedTheme = Pick & {
+export type SelectedTheme = Pick<
+  TypeTheme,
+  | "blur"
+  | "interfaceFont"
+  | "monospaceFont"
+  | "messageSize"
+  | "messageGroupSpacing"
+> & {
   preset: "you";
   darkMode: boolean;
 
@@ -87,8 +94,8 @@ export type SelectedTheme = Pick & {
 /**
  * Manages theme information
  */
-export class Theme extends AbstractStore {
-  prefersDark: Accessor;
+export class Theme extends AbstractStore<"theme", TypeTheme> {
+  prefersDark: Accessor<boolean>;
 
   /**
    * Construct store
@@ -143,7 +150,7 @@ export class Theme extends AbstractStore {
   /**
    * Validate the given data to see if it is compliant and return a compliant object
    */
-  clean(input: Partial): TypeTheme {
+  clean(input: Partial<TypeTheme>): TypeTheme {
     const data: TypeTheme = this.default();
 
     if (["light", "dark", "system"].includes(input.mode!)) {
