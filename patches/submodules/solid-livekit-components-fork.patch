@@ -1,0 +1,146 @@
+From 7bd187a864c43135498db756aaff419fa1bad56d Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Tue, 8 Sep 2026 22:39:50 -0400
+Subject: [PATCH] stoat: rewrite useIsSpeaking with direct local-mic RMS
+ analysis
+
+Fork-local change on top of e2831713 (itself already a local-only commit).
+
+Replaces the upstream createIsSpeakingObserver path with:
+- remote participants: LiveKit's 0-1 audio level against a 0.03 threshold
+- local participant: direct PCM RMS analysis of the mic track, rather
+  than trusting LiveKit's speaking flag, which lags behind our A2 gate
+  and made the local speaking ring disagree with what listeners heard
+
+Not pushable -- origin is revoltchat/solid-livekit-components, which we
+do not own. Patch is vendored in the parent repo under patches/submodules/.
+---
+ src/signals/useIsSpeaking.ts | 110 +++++++++++++++++++++++++++++------
+ 1 file changed, 92 insertions(+), 18 deletions(-)
+
+diff --git a/src/signals/useIsSpeaking.ts b/src/signals/useIsSpeaking.ts
+index 5b34b85..bba3e27 100644
+--- a/src/signals/useIsSpeaking.ts
++++ b/src/signals/useIsSpeaking.ts
+@@ -1,26 +1,100 @@
+-// @livekit/components-react@2.0.4
+-// Apache-2.0
+-
+-import { createIsSpeakingObserver } from '@livekit/components-core'
++import { createEffect, createSignal, onCleanup, untrack } from 'solid-js'
++import { ParticipantEvent, Track } from 'livekit-client'
+ import { useEnsureParticipant } from '../context'
+-import { useObservableState } from './internal'
+-import { createMemo } from 'solid-js'
+ 
+ import type { Participant } from 'livekit-client'
+-import type { Observable } from 'rxjs'
+-
+-/**
+- * The `useIsSpeaking` hook returns a `boolean` that indicates if the participant is speaking or not.
+- * @example
+- * ```tsx
+- * const isSpeaking = useIsSpeaking(participant);
+- * ```
+- * @public
+- */
++
++// Threshold for remote participants (LiveKit 0–1 audio level)
++const REMOTE_THRESHOLD = 0.03
++// RMS threshold for direct local mic analysis (PCM floats, –1 to 1)
++const LOCAL_THRESHOLD = 0.02
++// Keep indicator lit this long after level drops, to avoid mid-sentence flicker
++const HOLD_MS = 250
++// How often to sample the local mic (ms) — faster than any server round-trip
++const LOCAL_POLL_MS = 30
++
+ export function useIsSpeaking(participant?: Participant) {
+   const p = useEnsureParticipant(participant)
+-  const observable = createMemo(() => createIsSpeakingObserver(p), [p])
+-  const isSpeaking = useObservableState(observable() as unknown as Observable<boolean>, p.isSpeaking)
++  const [isSpeaking, setIsSpeaking] = createSignal(p.isSpeaking)
++
++  createEffect(() => {
++    let holdTimer: ReturnType<typeof setTimeout> | null = null
++
++    const applyLevel = (level: number, threshold: number) => {
++      if (level >= threshold) {
++        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null }
++        setIsSpeaking(true)
++      } else if (untrack(isSpeaking)) {
++        if (!holdTimer) {
++          holdTimer = setTimeout(() => { setIsSpeaking(false); holdTimer = null }, HOLD_MS)
++        }
++      }
++    }
++
++    if (p.isLocal) {
++      // For the local participant, analyse the microphone directly via Web Audio
++      // so the indicator responds in ~30ms with no server round-trip.
++      let pollTimer: ReturnType<typeof setInterval> | null = null
++      let analyser: AnalyserNode | null = null
++      let audioCtx: AudioContext | null = null
++      let buf: Float32Array | null = null
++
++      const teardown = () => {
++        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
++        if (analyser) { analyser.disconnect(); analyser = null }
++        if (audioCtx) { audioCtx.close(); audioCtx = null }
++      }
++
++      const setup = () => {
++        teardown()
++        const track = p.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack
++        if (!track) return
++        audioCtx = new AudioContext()
++        const source = audioCtx.createMediaStreamSource(new MediaStream([track]))
++        analyser = audioCtx.createAnalyser()
++        analyser.fftSize = 256
++        analyser.smoothingTimeConstant = 0.3
++        source.connect(analyser)
++        buf = new Float32Array(analyser.fftSize)
++        pollTimer = setInterval(() => {
++          if (!analyser || !buf) return
++          analyser.getFloatTimeDomainData(buf)
++          let sum = 0
++          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
++          applyLevel(Math.sqrt(sum / buf.length), LOCAL_THRESHOLD)
++        }, LOCAL_POLL_MS)
++      }
++
++      setup()
++      p.on(ParticipantEvent.LocalTrackPublished, setup)
++      p.on(ParticipantEvent.LocalTrackUnpublished, setup)
++
++      onCleanup(() => {
++        teardown()
++        if (holdTimer) clearTimeout(holdTimer)
++        p.off(ParticipantEvent.LocalTrackPublished, setup)
++        p.off(ParticipantEvent.LocalTrackUnpublished, setup)
++      })
++    } else {
++      // For remote participants, use LiveKit's AudioLevelChanged (server-driven).
++      const handleAudioLevel = (level: number) => applyLevel(level, REMOTE_THRESHOLD)
++      const handleIsSpeakingChanged = (speaking: boolean) => {
++        if (!speaking) {
++          if (holdTimer) { clearTimeout(holdTimer); holdTimer = null }
++          setIsSpeaking(false)
++        }
++      }
++
++      p.on(ParticipantEvent.AudioLevelChanged, handleAudioLevel)
++      p.on(ParticipantEvent.IsSpeakingChanged, handleIsSpeakingChanged)
++
++      onCleanup(() => {
++        if (holdTimer) clearTimeout(holdTimer)
++        p.off(ParticipantEvent.AudioLevelChanged, handleAudioLevel)
++        p.off(ParticipantEvent.IsSpeakingChanged, handleIsSpeakingChanged)
++      })
++    }
++  })
+ 
+   return isSpeaking
+ }
+-- 
+2.53.0.windows.1
+

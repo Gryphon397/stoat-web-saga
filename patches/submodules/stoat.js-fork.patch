@@ -1,0 +1,174 @@
+From 43aec102d9508fd8268b4bf4a7bdef6008790d2f Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Tue, 8 Sep 2026 22:39:39 -0400
+Subject: [PATCH] stoat: voice-state ready handling, online propagation,
+ availability status
+
+Fork-local changes to the API client, carried on top of e1a9c8a8.
+
+- EventClient: request the full 'ready' field set explicitly. Specifying
+  any ready param switches the server into selective mode, so asking for
+  voice_states alone silently dropped users/servers/channels/members/
+  emojis from the ready payload.
+- v1 handleEvent: apply voice_states after ready + a tick, inside batch(),
+  and only for participants whose user is already hydrated. Applying them
+  inline raced the UI's first render and produced voice tiles with no
+  user data.
+- Server: propagate the online flag when hydrating users from a member
+  fetch; getOrCreate alone left presence stale.
+- User.statusMessage: render the Stoat '__avail__<epoch_ms>' status-text
+  convention as 'Available in Xm/Xh' or 'Available at HH:MM'.
+
+Not pushable -- origin is stoatchat/javascript-client-sdk, which we do
+not own. Patch is vendored in the parent repo under patches/submodules/.
+---
+ src/classes/Server.ts     |  8 +++++---
+ src/classes/User.ts       | 22 ++++++++++++++++++----
+ src/events/EventClient.ts | 21 ++++++++-------------
+ src/events/v1.ts          | 39 ++++++++++++++++++++++++---------------
+ 4 files changed, 55 insertions(+), 35 deletions(-)
+
+diff --git a/src/classes/Server.ts b/src/classes/Server.ts
+index 72218942..98ef3a60 100644
+--- a/src/classes/Server.ts
++++ b/src/classes/Server.ts
+@@ -711,9 +711,11 @@ export class Server {
+         }
+       } else {
+         for (let i = 0; i < data.users.length; i++) {
+-          this.#collection.client.users.getOrCreate(
+-            data.users[i]._id,
+-            data.users[i],
++          const userData = data.users[i];
++          this.#collection.client.users.getOrCreate(userData._id, userData);
++          this.#collection.client.users.updateUnderlyingObject(
++            userData._id,
++            { online: userData.online } as never,
+           );
+           this.#collection.client.serverMembers.getOrCreate(
+             data.members[i]._id,
+diff --git a/src/classes/User.ts b/src/classes/User.ts
+index 296650f5..72193b0f 100644
+--- a/src/classes/User.ts
++++ b/src/classes/User.ts
+@@ -177,10 +177,24 @@ export class User {
+   statusMessage(
+     translate: (presence: Presence) => string = (a) => a,
+   ): string | undefined {
+-    return this.online
+-      ? (this.status?.text ??
+-          (this.presence === "Focus" ? translate("Focus") : undefined))
+-      : undefined;
++    if (!this.online) return undefined;
++    const text = this.status?.text;
++    if (text?.startsWith("__avail__")) {
++      const ts = parseInt(text.slice(9), 10);
++      if (!isNaN(ts)) {
++        const diffMs = ts - Date.now();
++        if (diffMs <= 0) return undefined;
++        if (diffMs < 60 * 60 * 1000) {
++          return `Available in ${Math.round(diffMs / 60000)}m`;
++        } else if (diffMs < 12 * 60 * 60 * 1000) {
++          return `Available in ${Math.round(diffMs / 3600000)}h`;
++        } else {
++          return `Available at ${new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
++        }
++      }
++      return undefined;
++    }
++    return text ?? (this.presence === "Focus" ? translate("Focus") : undefined);
+   }
+ 
+   /**
+diff --git a/src/events/EventClient.ts b/src/events/EventClient.ts
+index e6f37f12..8146459a 100644
+--- a/src/events/EventClient.ts
++++ b/src/events/EventClient.ts
+@@ -161,19 +161,14 @@ export class EventClient<
+     url.searchParams.set("format", this.#transportFormat);
+     url.searchParams.set("token", token);
+ 
+-    // todo: pass-through ts as a configuration option
+-    // todo: then remove /settings/fetch from web client
+-    // todo: do the same for unreads
+-    // url.searchParams.append("ready", "users");
+-    // url.searchParams.append("ready", "servers");
+-    // url.searchParams.append("ready", "channels");
+-    // url.searchParams.append("ready", "members");
+-    // url.searchParams.append("ready", "emojis");
+-    // url.searchParams.append("ready", "voice_states");
+-    // url.searchParams.append("ready", "user_settings[ordering]");
+-    // url.searchParams.append("ready", "user_settings[notifications]");
+-    // url.searchParams.append("ready", "unreads or something");
+-    // url.searchParams.append("ready", "policy_changes");
++    // Specifying any "ready" param switches the server to selective mode,
++    // so we must explicitly request all essential fields alongside voice_states.
++    url.searchParams.append("ready", "users");
++    url.searchParams.append("ready", "servers");
++    url.searchParams.append("ready", "channels");
++    url.searchParams.append("ready", "members");
++    url.searchParams.append("ready", "emojis");
++    url.searchParams.append("ready", "voice_states");
+ 
+     this.#socket = new WebSocket(url);
+ 
+diff --git a/src/events/v1.ts b/src/events/v1.ts
+index eb51b2f4..67fa40d2 100644
+--- a/src/events/v1.ts
++++ b/src/events/v1.ts
+@@ -304,21 +304,6 @@ export async function handleEvent(
+           }
+         }
+ 
+-        if (event.voice_states) {
+-          for (const state of event.voice_states) {
+-            const channel = client.channels.get(state.id);
+-            if (channel) {
+-              channel.voiceParticipants.clear();
+-
+-              for (const participant of state.participants) {
+-                channel.voiceParticipants.set(
+-                  participant.id,
+-                  new VoiceParticipant(client, participant),
+-                );
+-              }
+-            }
+-          }
+-        }
+         if (event.emojis) {
+           for (const emoji of event.emojis) {
+             client.emojis.getOrCreate(emoji._id, emoji);
+@@ -333,6 +318,30 @@ export async function handleEvent(
+       setReady(true);
+       client.emit("ready");
+ 
++      // Apply voice states after a tick so the UI has fully rendered with user data
++      if (event.voice_states) {
++        const voiceStates = event.voice_states;
++        setTimeout(() => {
++          batch(() => {
++            for (const state of voiceStates) {
++              const channel = client.channels.get(state.id);
++              if (channel) {
++                channel.voiceParticipants.clear();
++
++                for (const participant of state.participants) {
++                  if (client.users.has(participant.id)) {
++                    channel.voiceParticipants.set(
++                      participant.id,
++                      new VoiceParticipant(client, participant),
++                    );
++                  }
++                }
++              }
++            }
++          });
++        }, 0);
++      }
++
+       if (event.policy_changes?.length) {
+         client.emit("policyChanges", event.policy_changes, async () =>
+           client.api.post("/policy/acknowledge"),
+-- 
+2.53.0.windows.1
+
