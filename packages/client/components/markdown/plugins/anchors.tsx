@@ -44,6 +44,22 @@ const internalLink = cva({
   },
 });
 
+/**
+ * Whether a URL points at a route this app actually handles.
+ *
+ * The origin list is deliberately just our own: 7d98ef0a dropped upstream's
+ * revolt.chat / stoat.chat entries because a self-hosted instance should not
+ * treat the public instances' links as internal.
+ */
+function inAppScope(link: URL): boolean {
+  return (
+    [location.origin].includes(link.origin) &&
+    /\/(app|pwa|dev|invite|bot|friends|server|channel|discover|settings)\/?/.test(
+      link.pathname,
+    )
+  );
+}
+
 export function RenderAnchor(
   props: { disabled?: boolean } & JSX.AnchorHTMLAttributes<HTMLAnchorElement>,
 ) {
@@ -82,11 +98,7 @@ export function RenderAnchor(
     }
 
     // Determine whether it's in our scope
-    if (
-      [
-        location.origin,
-      ].includes(url.origin)
-    ) {
+    if (inAppScope(url)) {
       const client = useClient();
       const params = paramsFromPathname(url.pathname);
 
