@@ -11,6 +11,7 @@ import { useState } from "@revolt/state";
 import { Button, CategoryButton, Checkbox, Column, Slider, Text } from "@revolt/ui";
 
 import { LoopbackTestPanel } from "./LoopbackTestPanel";
+import { MicMeter } from "./MicMeter";
 
 // [Voice/H2] Kill switch matches the J5/J6/J7 pattern. Hide the harness button
 // entirely when set so the user has a clean revert path if anything below
@@ -167,6 +168,9 @@ export function VoiceProcessingOptions() {
           Automatically determine input sensitivity
         </CategoryButton>
       </CategoryButton.Group>
+      {/* [Voice/F1] Live mic-level meter + threshold marker. Shown in both auto
+          and manual modes; opens/releases its own AudioContext with this panel. */}
+      <MicMeter />
       <Show when={!state.voice.inputSensitivityAuto}>
         <Column>
           <Text class="label">Sensitivity Threshold ({(state.voice.inputSensitivity ?? -60).toFixed(0)} dBFS)</Text>
