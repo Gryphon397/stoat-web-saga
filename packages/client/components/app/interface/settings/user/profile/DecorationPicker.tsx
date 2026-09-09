@@ -15,8 +15,9 @@ import {
 } from "@revolt/ui";
 
 /**
- * Avatar decoration picker — shows all catalogue presets in a scrollable grid,
- * plus a custom-upload option. Selection is saved immediately to the server.
+ * Avatar decoration picker — shows the catalogue grouped by Discord theme,
+ * a Flags tab for our self-added country flags, and a custom-upload tab.
+ * Selection is saved immediately to the server.
  */
 export function DecorationPicker() {
   const client = useClient();
@@ -25,14 +26,36 @@ export function DecorationPicker() {
   const currentUserId = () => client().user?.id ?? "";
   const currentDecoId = () => state.decorations.userDecorations[currentUserId()] ?? null;
 
-  const [tab, setTab] = createSignal<"decorations" | "flags" | "custom">(
-    "decorations"
-  );
+  const [tab, setTab] = createSignal<"browse" | "flags" | "custom">("browse");
+  const [selectedCategory, setSelectedCategory] = createSignal<string | null>(null);
   const [uploading, setUploading] = createSignal(false);
 
-  const visibleEntries = createMemo(() =>
-    state.decorations.catalogue.filter((e) => e.category === tab())
-  );
+  // Build list of themed categories (everything except "flags") for the chip strip.
+  // Retired sorts last so the live shop content is the default focus.
+  const categories = createMemo(() => {
+    const set = new Set<string>();
+    for (const e of state.decorations.catalogue) {
+      if (e.category && e.category !== "flags") set.add(e.category);
+    }
+    return [...set].sort((a, b) => {
+      if (a === "Retired") return 1;
+      if (b === "Retired") return -1;
+      return a.localeCompare(b);
+    });
+  });
+
+  const visibleEntries = createMemo(() => {
+    if (tab() === "flags") {
+      return state.decorations.catalogue.filter((e) => e.category === "flags");
+    }
+    if (tab() === "custom") return [];
+    const cat = selectedCategory();
+    return state.decorations.catalogue.filter((e) => {
+      if (e.category === "flags") return false;
+      if (cat === null) return true;
+      return e.category === cat;
+    });
+  });
 
   async function select(id: string | null) {
     const uid = currentUserId();
@@ -77,8 +100,8 @@ export function DecorationPicker() {
 
       {/* Tab bar */}
       <Row gap="sm">
-        <TabButton active={tab() === "decorations"} onClick={() => setTab("decorations")}>
-          Decorations
+        <TabButton active={tab() === "browse"} onClick={() => setTab("browse")}>
+          Browse
         </TabButton>
         <TabButton active={tab() === "flags"} onClick={() => setTab("flags")}>
           Flags
@@ -87,6 +110,27 @@ export function DecorationPicker() {
           Custom
         </TabButton>
       </Row>
+
+      <Show when={tab() === "browse"}>
+        <CategoryChipStrip>
+          <CategoryChip
+            active={selectedCategory() === null}
+            onClick={() => setSelectedCategory(null)}
+          >
+            All
+          </CategoryChip>
+          <For each={categories()}>
+            {(cat) => (
+              <CategoryChip
+                active={selectedCategory() === cat}
+                onClick={() => setSelectedCategory(cat)}
+              >
+                {cat}
+              </CategoryChip>
+            )}
+          </For>
+        </CategoryChipStrip>
+      </Show>
 
       <Show when={tab() !== "custom"}>
         {/* "None" tile + preset grid */}
@@ -242,6 +286,45 @@ const NoneIcon = styled("span", {
   base: {
     fontSize: "1.5rem",
     color: "var(--md-sys-color-on-surface-variant)",
+  },
+});
+
+const CategoryChipStrip = styled("div", {
+  base: {
+    display: "flex",
+    gap: "6px",
+    overflowX: "auto",
+    paddingBottom: "4px",
+    // Keep the strip from stretching parent column when many categories present
+    flexShrink: 0,
+  },
+});
+
+const CategoryChip = styled("button", {
+  base: {
+    flexShrink: 0,
+    padding: "4px 12px",
+    borderRadius: "var(--borderRadius-full)",
+    border: "1px solid var(--md-sys-color-outline-variant)",
+    background: "transparent",
+    color: "var(--md-sys-color-on-surface)",
+    cursor: "pointer",
+    fontSize: "0.8125rem",
+    fontWeight: 500,
+    whiteSpace: "nowrap",
+    transition: "background 0.15s, color 0.15s, border-color 0.15s",
+    "&:hover": {
+      background: "var(--md-sys-color-surface-container)",
+    },
+  },
+  variants: {
+    active: {
+      true: {
+        background: "var(--md-sys-color-primary)",
+        color: "var(--md-sys-color-on-primary)",
+        borderColor: "var(--md-sys-color-primary)",
+      },
+    },
   },
 });
 

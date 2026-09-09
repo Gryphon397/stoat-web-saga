@@ -12,3 +12,8 @@ dist
 
 **/dist-prod
 dist-prod
+
+# Discord profile effects: 1.7GB raw asset scrape, no manifest, no code
+# references. Rendering is deferred (StoatData-3gy). Kept on disk only --
+# committing it would ~6x the object store shared with stoat-web-saga.
+packages/client/scripts/assets_fallback/profile_effects/
