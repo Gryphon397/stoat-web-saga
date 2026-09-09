@@ -3,6 +3,7 @@ import {
   createContext,
   createEffect,
   onCleanup,
+  untrack,
   useContext,
 } from "solid-js";
 
@@ -153,7 +154,7 @@ export function KeybindContext(props: { children: JSXElement }) {
           createEffect(() => {
             const _ = [...activeKeys]; // track dependency
             if (isFired(keybind)) {
-              callback();
+              untrack(callback);
             }
           });
         },
