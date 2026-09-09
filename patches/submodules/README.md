@@ -45,3 +45,29 @@ commits behind upstream and a bump is tracked in `StoatData-42o`; when that
 lands, these patches must be rebased onto the new base rather than reapplied
 blind. The `stoat.js` patch touches `EventClient.ts` and `events/v1.ts`,
 which upstream has been actively changing.
+
+## Why `git status` shows both submodules as modified
+
+After applying these patches the submodules sit on their `stoat-fork`
+branches, while the parent index still records the upstream bases. Git
+reports that as:
+
+```
+ M packages/solid-livekit-components
+ M packages/stoat.js
+```
+
+**This is the intended steady state — do not "fix" it by staging them.**
+
+The submodules must stay on `stoat-fork` because the Docker build copies the
+working tree, so the build needs the patched sources. But the *pointers* must
+stay on the upstream bases so clones keep working. Those two facts can't both
+be satisfied without a permanently dirty-looking status.
+
+Practical consequence: **never `git add -A` at the repo root** without
+checking what it staged. It will pick up the pointer move and break
+`git submodule update --init` for prod. Stage paths explicitly instead.
+
+If you genuinely mean to bump a submodule (e.g. the `stoat.js` bump in
+`StoatData-42o`), that's a deliberate `git add packages/stoat.js` alongside a
+rebase of the patch above — not an incidental `-A`.
