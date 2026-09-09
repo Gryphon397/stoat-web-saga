@@ -1,7 +1,287 @@
+From 01e3f9469a96990bda5f7d31e12af5804ac70844 Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Mon, 30 Mar 2026 23:36:35 -0400
+Subject: [PATCH 1/7] Add useConnectionQuality hook
+
+---
+ src/signals/index.ts                |  2 ++
+ src/signals/useConnectionQuality.ts | 21 +++++++++++++++++++++
+ 2 files changed, 23 insertions(+)
+ create mode 100644 src/signals/useConnectionQuality.ts
+
+diff --git a/src/signals/index.ts b/src/signals/index.ts
+index 59bdf2f..da82323 100644
+--- a/src/signals/index.ts
++++ b/src/signals/index.ts
+@@ -40,6 +40,8 @@
+ 
+ export { useConnectionState } from './useConnectionStatus'
+ 
++export { useConnectionQuality } from './useConnectionQuality'
++
+ export { useIsEncrypted } from './useIsEncrypted'
+ 
+ export type { UseIsMutedOptions } from './useIsMuted'
+diff --git a/src/signals/useConnectionQuality.ts b/src/signals/useConnectionQuality.ts
+new file mode 100644
+index 0000000..d922808
+--- /dev/null
++++ b/src/signals/useConnectionQuality.ts
+@@ -0,0 +1,21 @@
++// @livekit/components-react@2.0.4
++// Apache-2.0
++
++import { createConnectionQualityObserver } from '@livekit/components-core'
++import { createMemo } from 'solid-js'
++import { ConnectionQuality } from 'livekit-client'
++
++import type { Participant } from 'livekit-client'
++import type { Observable } from 'rxjs'
++
++import { useEnsureParticipant } from '../context'
++import { useObservableState } from './internal'
++
++export function useConnectionQuality(participant?: Participant) {
++  const p = useEnsureParticipant(participant)
++  const observable = createMemo(
++    () => createConnectionQualityObserver(p) as unknown as Observable<ConnectionQuality>,
++    [p],
++  )
++  return useObservableState(observable(), p.connectionQuality)
++}
+-- 
+2.53.0.windows.1
+
+
+From a80149ba9cb5217aef4d02b53f9bede9dc16c47a Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Tue, 31 Mar 2026 01:07:52 -0400
+Subject: [PATCH 2/7] fix: rewrite useConnectionQuality with direct LiveKit
+ event listener
+
+Replace RxJS observable chain (createConnectionQualityObserver) with a
+direct ParticipantEvent.ConnectionQualityChanged listener. Add 5s poll
+fallback for setups where events may not fire reliably.
+---
+ src/signals/useConnectionQuality.ts | 38 ++++++++++++++++++++---------
+ 1 file changed, 26 insertions(+), 12 deletions(-)
+
+diff --git a/src/signals/useConnectionQuality.ts b/src/signals/useConnectionQuality.ts
+index d922808..b1e4b61 100644
+--- a/src/signals/useConnectionQuality.ts
++++ b/src/signals/useConnectionQuality.ts
+@@ -1,21 +1,35 @@
+-// @livekit/components-react@2.0.4
+-// Apache-2.0
++// Direct LiveKit event subscription — avoids RxJS observable indirection
++// and handles the Unknown→known transition properly.
+ 
+-import { createConnectionQualityObserver } from '@livekit/components-core'
+-import { createMemo } from 'solid-js'
+-import { ConnectionQuality } from 'livekit-client'
++import { createSignal, onCleanup, onMount } from 'solid-js'
++import { ConnectionQuality, ParticipantEvent } from 'livekit-client'
+ 
+ import type { Participant } from 'livekit-client'
+-import type { Observable } from 'rxjs'
+ 
+ import { useEnsureParticipant } from '../context'
+-import { useObservableState } from './internal'
+ 
+ export function useConnectionQuality(participant?: Participant) {
+   const p = useEnsureParticipant(participant)
+-  const observable = createMemo(
+-    () => createConnectionQualityObserver(p) as unknown as Observable<ConnectionQuality>,
+-    [p],
+-  )
+-  return useObservableState(observable(), p.connectionQuality)
++  const [quality, setQuality] = createSignal<ConnectionQuality>(p.connectionQuality)
++
++  onMount(() => {
++    // sync in case quality changed between render and mount
++    setQuality(p.connectionQuality)
++
++    const handler = (q: ConnectionQuality) => setQuality(q)
++    p.on(ParticipantEvent.ConnectionQualityChanged, handler)
++
++    // fallback poll — some LiveKit setups only update quality on change,
++    // so we poll occasionally to catch any silent updates
++    const interval = setInterval(() => {
++      setQuality(p.connectionQuality)
++    }, 5000)
++
++    onCleanup(() => {
++      p.off(ParticipantEvent.ConnectionQualityChanged, handler)
++      clearInterval(interval)
++    })
++  })
++
++  return quality
+ }
+-- 
+2.53.0.windows.1
+
+
+From da1ea707ed025746902aabc188596790e82531ce Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Tue, 31 Mar 2026 10:23:10 -0400
+Subject: [PATCH 3/7] debug: add quality hook logging
+
+---
+ src/signals/useConnectionQuality.ts | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/src/signals/useConnectionQuality.ts b/src/signals/useConnectionQuality.ts
+index b1e4b61..022ec43 100644
+--- a/src/signals/useConnectionQuality.ts
++++ b/src/signals/useConnectionQuality.ts
+@@ -12,17 +12,22 @@ export function useConnectionQuality(participant?: Participant) {
+   const p = useEnsureParticipant(participant)
+   const [quality, setQuality] = createSignal<ConnectionQuality>(p.connectionQuality)
+ 
++  console.log('[quality] hook init for', p.identity, 'initial quality:', p.connectionQuality)
++
+   onMount(() => {
+-    // sync in case quality changed between render and mount
++    console.log('[quality] onMount for', p.identity, 'quality at mount:', p.connectionQuality)
+     setQuality(p.connectionQuality)
+ 
+-    const handler = (q: ConnectionQuality) => setQuality(q)
++    const handler = (q: ConnectionQuality) => {
++      console.log('[quality] ConnectionQualityChanged event for', p.identity, '->', q)
++      setQuality(q)
++    }
+     p.on(ParticipantEvent.ConnectionQualityChanged, handler)
+ 
+-    // fallback poll — some LiveKit setups only update quality on change,
+-    // so we poll occasionally to catch any silent updates
+     const interval = setInterval(() => {
+-      setQuality(p.connectionQuality)
++      const q = p.connectionQuality
++      console.log('[quality] poll for', p.identity, ':', q)
++      setQuality(q)
+     }, 5000)
+ 
+     onCleanup(() => {
+-- 
+2.53.0.windows.1
+
+
+From fecb249fe4101302a017543d0f88ba4856bb2b81 Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Tue, 31 Mar 2026 12:49:03 -0400
+Subject: [PATCH 4/7] Remove debug logging from useConnectionQuality
+
+---
+ src/signals/useConnectionQuality.ts | 8 +-------
+ 1 file changed, 1 insertion(+), 7 deletions(-)
+
+diff --git a/src/signals/useConnectionQuality.ts b/src/signals/useConnectionQuality.ts
+index 022ec43..91ede9a 100644
+--- a/src/signals/useConnectionQuality.ts
++++ b/src/signals/useConnectionQuality.ts
+@@ -12,22 +12,16 @@ export function useConnectionQuality(participant?: Participant) {
+   const p = useEnsureParticipant(participant)
+   const [quality, setQuality] = createSignal<ConnectionQuality>(p.connectionQuality)
+ 
+-  console.log('[quality] hook init for', p.identity, 'initial quality:', p.connectionQuality)
+-
+   onMount(() => {
+-    console.log('[quality] onMount for', p.identity, 'quality at mount:', p.connectionQuality)
+     setQuality(p.connectionQuality)
+ 
+     const handler = (q: ConnectionQuality) => {
+-      console.log('[quality] ConnectionQualityChanged event for', p.identity, '->', q)
+       setQuality(q)
+     }
+     p.on(ParticipantEvent.ConnectionQualityChanged, handler)
+ 
+     const interval = setInterval(() => {
+-      const q = p.connectionQuality
+-      console.log('[quality] poll for', p.identity, ':', q)
+-      setQuality(q)
++      setQuality(p.connectionQuality)
+     }, 5000)
+ 
+     onCleanup(() => {
+-- 
+2.53.0.windows.1
+
+
+From e28317132df4539c066d712a73d6478f513fdc7b Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Mon, 20 Apr 2026 22:53:02 -0400
+Subject: [PATCH 5/7] fix: handle no-room state gracefully in useEnsureRoom and
+ useTracks
+
+useEnsureRoom now returns undefined instead of throwing when no room is
+available. useTracks guards the subscription effect so it skips when
+room() is undefined, preventing crashes before a call is joined.
+---
+ src/context/room-context.ts | 14 +++-----------
+ src/signals/useTracks.ts    |  7 +++++--
+ 2 files changed, 8 insertions(+), 13 deletions(-)
+
+diff --git a/src/context/room-context.ts b/src/context/room-context.ts
+index 1093916..b28ec6c 100644
+--- a/src/context/room-context.ts
++++ b/src/context/room-context.ts
+@@ -29,19 +29,11 @@ export function useMaybeRoomContext() {
+ }
+ 
+ /**
+- * Ensures that a room is provided, either via context or explicitly as a parameter.
+- * If no room is provided, an error is thrown.
++ * Returns an accessor for the room, either from explicit parameter or context.
++ * Returns undefined when no room is available (e.g. before joining a call).
+  * @public
+  */
+ export function useEnsureRoom(room?: Room) {
+   const context = useMaybeRoomContext()
+-  return () => {
+-    const r = room ?? context?.()
+-    if (!r) {
+-      throw new Error(
+-        'No room provided, make sure you are inside a Room context or pass the room explicitly',
+-      )
+-    }
+-    return r
+-  }
++  return () => room ?? context?.()
+ }
+diff --git a/src/signals/useTracks.ts b/src/signals/useTracks.ts
+index 3f8a22f..78a3c87 100644
+--- a/src/signals/useTracks.ts
++++ b/src/signals/useTracks.ts
+@@ -68,7 +68,10 @@ export function useTracks<T extends SourcesArray = Track.Source[]>(
+   })
+ 
+   createEffect(() => {
+-    const subscription = trackReferencesObservable(room(), sources_(), {
++    const r = room()
++    if (!r) return
++
++    const subscription = trackReferencesObservable(r, sources_(), {
+       additionalRoomEvents: options.updateOnlyOn,
+       onlySubscribed: options.onlySubscribed,
+     }).subscribe(({ trackReferences, participants }) => {
+@@ -78,7 +81,7 @@ export function useTracks<T extends SourcesArray = Track.Source[]>(
+     })
+ 
+     return () => subscription.unsubscribe()
+-  }, [room(), JSON.stringify(options.updateOnlyOn), JSON.stringify(sources)])
++  })
+ 
+   const maybeTrackReferences = createMemo(() => {
+     if (isSourcesWithOptions(sources)) {
+-- 
+2.53.0.windows.1
+
+
 From 7bd187a864c43135498db756aaff419fa1bad56d Mon Sep 17 00:00:00 2001
 From: Gryphon397 <jgfillman@gmail.com>
 Date: Tue, 8 Sep 2026 22:39:50 -0400
-Subject: [PATCH] stoat: rewrite useIsSpeaking with direct local-mic RMS
+Subject: [PATCH 6/7] stoat: rewrite useIsSpeaking with direct local-mic RMS
  analysis
 
 Fork-local change on top of e2831713 (itself already a local-only commit).
@@ -141,6 +421,157 @@ index 5b34b85..bba3e27 100644
  
    return isSpeaking
  }
+-- 
+2.53.0.windows.1
+
+
+From 12785beda78da31cde29086437b253d7a9a0c0de Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Wed, 9 Sep 2026 13:07:37 -0400
+Subject: [PATCH 7/7] stoat: make the package typecheck so tsup can emit
+ declarations
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three strict-mode failures blocked `tsup`'s DTS step, which is why our
+Dockerfile builds this package with --no-dts. Without dist/index.d.ts the
+consuming client can't resolve the module at all: 12x TS2307 plus ~13
+cascading 'unknown' errors in packages/client.
+
+- useConnectionStatus / useIsEncrypted: our own e283171 changed
+  useEnsureRoom to return Room | undefined instead of throwing, but these
+  two call sites were never updated. They passed a possibly-undefined room
+  straight into the observer and dereferenced r().state. Both now fall back
+  the way useObservableState already expects (it takes Observable | undefined
+  and guards), so no-room renders stay disconnected/unencrypted rather than
+  throwing.
+
+- useIsSpeaking: ParticipantEvent.AudioLevelChanged does not exist in
+  livekit-client 2.x (we're on 2.15.13). `p.on(undefined, handler)`
+  registered a listener that could never fire, and the surviving
+  IsSpeakingChanged handler only acted on the falling edge — so remote
+  participants never lit up as speaking at all, in ParticipantTile and
+  VoiceChannelPreview. IsSpeakingChanged now drives both edges, keeping the
+  250ms hold that avoids mid-sentence flicker. The local-mic RMS path is
+  unchanged. REMOTE_THRESHOLD is dropped as it is now unreachable.
+
+- useIsSpeaking: buf[i] is number | undefined under noUncheckedIndexedAccess.
+
+`tsup` now completes the DTS step and emits a 68 KB dist/index.d.ts.
+---
+ src/signals/useConnectionStatus.ts | 13 ++++++++++---
+ src/signals/useIsEncrypted.ts      |  8 ++++++--
+ src/signals/useIsSpeaking.ts       | 23 ++++++++++++++---------
+ 3 files changed, 30 insertions(+), 14 deletions(-)
+
+diff --git a/src/signals/useConnectionStatus.ts b/src/signals/useConnectionStatus.ts
+index a9fcea0..487255f 100644
+--- a/src/signals/useConnectionStatus.ts
++++ b/src/signals/useConnectionStatus.ts
+@@ -6,7 +6,7 @@ import { useEnsureRoom } from '../context'
+ import { useObservableState } from './internal'
+ import { createMemo } from 'solid-js'
+ 
+-import type { ConnectionState, Room } from 'livekit-client'
++import { ConnectionState, type Room } from 'livekit-client'
+ import type { Observable } from 'rxjs'
+ 
+ /**
+@@ -21,7 +21,14 @@ import type { Observable } from 'rxjs'
+ export function useConnectionState(room?: Room) {
+   // passed room takes precedence, if not supplied get current room context
+   const r = useEnsureRoom(room)
+-  const observable = createMemo(() => connectionStateObserver(r()))
+-  const connectionState = useObservableState(observable() as unknown as Observable<ConnectionState>, r().state)
++  // r() is undefined until a room is available; stay disconnected rather than throw
++  const observable = createMemo(() => {
++    const currentRoom = r()
++    return currentRoom ? connectionStateObserver(currentRoom) : undefined
++  })
++  const connectionState = useObservableState(
++    observable() as unknown as Observable<ConnectionState> | undefined,
++    r()?.state ?? ConnectionState.Disconnected,
++  )
+   return connectionState
+ }
+diff --git a/src/signals/useIsEncrypted.ts b/src/signals/useIsEncrypted.ts
+index d08bb17..13cd509 100644
+--- a/src/signals/useIsEncrypted.ts
++++ b/src/signals/useIsEncrypted.ts
+@@ -16,9 +16,13 @@ export function useIsEncrypted(participant?: Participant) {
+   const p = useEnsureParticipant(participant)
+   const room = useEnsureRoom()
+ 
+-  const observer = createMemo(() => encryptionStatusObservable(room(), p))
++  // room() is undefined until a room is available; report unencrypted rather than throw
++  const observer = createMemo(() => {
++    const currentRoom = room()
++    return currentRoom ? encryptionStatusObservable(currentRoom, p) : undefined
++  })
+   const isEncrypted = useObservableState(
+-    observer() as unknown as Observable<boolean>,
++    observer() as unknown as Observable<boolean> | undefined,
+     p instanceof LocalParticipant ? p.isE2EEEnabled : p.isEncrypted,
+   )
+   return isEncrypted
+diff --git a/src/signals/useIsSpeaking.ts b/src/signals/useIsSpeaking.ts
+index bba3e27..d932690 100644
+--- a/src/signals/useIsSpeaking.ts
++++ b/src/signals/useIsSpeaking.ts
+@@ -4,8 +4,6 @@ import { useEnsureParticipant } from '../context'
+ 
+ import type { Participant } from 'livekit-client'
+ 
+-// Threshold for remote participants (LiveKit 0–1 audio level)
+-const REMOTE_THRESHOLD = 0.03
+ // RMS threshold for direct local mic analysis (PCM floats, –1 to 1)
+ const LOCAL_THRESHOLD = 0.02
+ // Keep indicator lit this long after level drops, to avoid mid-sentence flicker
+@@ -60,7 +58,10 @@ export function useIsSpeaking(participant?: Participant) {
+           if (!analyser || !buf) return
+           analyser.getFloatTimeDomainData(buf)
+           let sum = 0
+-          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
++          for (let i = 0; i < buf.length; i++) {
++            const sample = buf[i] ?? 0
++            sum += sample * sample
++          }
+           applyLevel(Math.sqrt(sum / buf.length), LOCAL_THRESHOLD)
+         }, LOCAL_POLL_MS)
+       }
+@@ -76,21 +77,25 @@ export function useIsSpeaking(participant?: Participant) {
+         p.off(ParticipantEvent.LocalTrackUnpublished, setup)
+       })
+     } else {
+-      // For remote participants, use LiveKit's AudioLevelChanged (server-driven).
+-      const handleAudioLevel = (level: number) => applyLevel(level, REMOTE_THRESHOLD)
++      // For remote participants, speaking state is server-driven. LiveKit
++      // removed ParticipantEvent.AudioLevelChanged in livekit-client 2.x, so
++      // IsSpeakingChanged is the only supported signal — it must drive both
++      // edges, not just the falling one, or remotes never light up at all.
+       const handleIsSpeakingChanged = (speaking: boolean) => {
+-        if (!speaking) {
++        if (speaking) {
+           if (holdTimer) { clearTimeout(holdTimer); holdTimer = null }
+-          setIsSpeaking(false)
++          setIsSpeaking(true)
++        } else if (untrack(isSpeaking)) {
++          if (!holdTimer) {
++            holdTimer = setTimeout(() => { setIsSpeaking(false); holdTimer = null }, HOLD_MS)
++          }
+         }
+       }
+ 
+-      p.on(ParticipantEvent.AudioLevelChanged, handleAudioLevel)
+       p.on(ParticipantEvent.IsSpeakingChanged, handleIsSpeakingChanged)
+ 
+       onCleanup(() => {
+         if (holdTimer) clearTimeout(holdTimer)
+-        p.off(ParticipantEvent.AudioLevelChanged, handleAudioLevel)
+         p.off(ParticipantEvent.IsSpeakingChanged, handleIsSpeakingChanged)
+       })
+     }
 -- 
 2.53.0.windows.1
 

@@ -2,10 +2,10 @@
 
 Both submodules here point at upstream repos we do **not** own:
 
-| Submodule | Origin | Pinned base |
-|-----------|--------|-------------|
-| `packages/stoat.js` | `stoatchat/javascript-client-sdk` | `44d45ade` |
-| `packages/solid-livekit-components` | `revoltchat/solid-livekit-components` | `e2831713` |
+| Submodule | Origin | Pinned base | Local commits |
+|-----------|--------|-------------|---------------|
+| `packages/stoat.js` | `stoatchat/javascript-client-sdk` | `44d45ade` | 1 |
+| `packages/solid-livekit-components` | `revoltchat/solid-livekit-components` | `a4f98b78` | 7 |
 
 We carry local fixes in both. Because we can't push to either origin, the
 submodule commits exist only on this machine — and the parent repo's
@@ -31,11 +31,67 @@ git checkout -b stoat-fork
 git am ../../patches/submodules/solid-livekit-components-fork.patch
 ```
 
-## Regenerating after further submodule edits
+Then regenerate the build artifacts, or nothing downstream will typecheck —
+`solid-livekit-components` has no committed `dist/`, so without this step
+every import of it resolves to nothing:
 
 ```bash
-git -C packages/stoat.js format-patch -1 --stdout stoat-fork \
-  > patches/submodules/stoat.js-fork.patch
+pnpm build:deps
+```
+
+## Regenerating after further submodule edits
+
+Always regenerate from the **pinned base** in the table above. Do not use
+`-1`: it captures only the newest commit and silently drops the rest of the
+fork. That is exactly how `solid-livekit-components` came to have 6 of its 7
+commits missing from its patch file (found and fixed 2026-09-09 under
+`StoatData-u7d`).
+
+```bash
+git -C packages/stoat.js format-patch 44d45ade..stoat-fork --stdout > patches/submodules/stoat.js-fork.patch
+
+git -C packages/solid-livekit-components format-patch a4f98b78..stoat-fork --stdout > patches/submodules/solid-livekit-components-fork.patch
+```
+
+Check the commit count landed as expected:
+
+```bash
+grep -c '^From ' patches/submodules/solid-livekit-components-fork.patch
+```
+
+## Verifying a patch actually applies
+
+A regenerated patch is worth nothing until it's been replayed onto a clean
+checkout. Do it against a throwaway clone so the real working tree — which
+the Docker build copies — is never disturbed:
+
+```bash
+git clone --shared --no-checkout packages/solid-livekit-components /tmp/slk-test
+cd /tmp/slk-test
+git checkout -b amtest a4f98b78
+git am /d/StoatData/stoat-web-dev/patches/submodules/solid-livekit-components-fork.patch
+```
+
+## The pointer must be a commit that exists on the origin
+
+Checked 2026-09-09: the `solid-livekit-components` pointer recorded
+`e2831713`, which is one of *our* commits and exists on no remote. That is
+the precise failure this file warns about — `git submodule update --init`
+could never have resolved it from a fresh clone. The pointer is now
+`a4f98b78`, the real merge-base with `origin/main`.
+
+Before recording any pointer, confirm the target is reachable from the
+origin:
+
+```bash
+git -C packages/solid-livekit-components branch -r --contains <sha>
+```
+
+An empty result means the commit is local-only — do not record it. To set a
+pointer without moving the working tree off `stoat-fork`:
+
+```bash
+git update-index --cacheinfo 160000,<sha>,packages/solid-livekit-components
 ```
 
 ## Caveat

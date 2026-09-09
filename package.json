@@ -2,6 +2,14 @@
   "name": "stoat-for-web",
   "version": "0.3.0",
   "description": "Stoat for Web: frontend software for Stoat",
+  "scripts": {
+    "build:deps": "pnpm run build:deps:stoat-js && pnpm run build:deps:livekit && pnpm run build:deps:lingui && pnpm run lingui:compile",
+    "build:deps:stoat-js": "pnpm --filter stoat.js build",
+    "build:deps:livekit": "pnpm --filter solid-livekit-components build",
+    "build:deps:lingui": "pnpm --filter @lingui-solid/babel-plugin-lingui-macro build && pnpm --filter @lingui-solid/babel-plugin-extract-messages build",
+    "lingui:compile": "pnpm --filter client exec lingui compile --typescript",
+    "typecheck": "pnpm --filter client exec tsc --noEmit"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "eslint": "^9.26.0",
