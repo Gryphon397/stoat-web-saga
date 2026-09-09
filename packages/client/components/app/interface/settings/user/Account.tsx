@@ -155,20 +155,21 @@ function MultiFactorAuth() {
    */
   async function setupAuthenticatorApp() {
     const ticket = await mfaFlow(mfa.data!);
-    const secret = await ticket!.generateAuthenticatorSecret();
+    // Dismissing the MFA flow resolves undefined; don't dereference it.
+    if (!ticket) return;
 
-    let success;
-    while (!success) {
-      try {
-        const code = await mfaEnableTOTP(secret, client().user!.username);
+    const secret = await ticket.generateAuthenticatorSecret();
 
-        if (code) {
-          await mfa.data!.enableAuthenticator(code);
-          success = true;
-        }
-      } catch (err) {
-        showError(err);
-      }
+    // No retry loop here. The dialog reports a rejected code itself and stays
+    // open with the entry intact; looping reopened it on top of its own error,
+    // and since dismissing resolved undefined rather than rejecting, anything
+    // other than Cancel reopened the dialog forever.
+    try {
+      await mfaEnableTOTP(secret, client().user!.username, (code) =>
+        mfa.data!.enableAuthenticator(code),
+      );
+    } catch (err) {
+      showError(err);
     }
   }
 

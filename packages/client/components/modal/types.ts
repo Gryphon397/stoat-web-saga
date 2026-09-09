@@ -1,3 +1,5 @@
+import { ScreenShareQualityName } from "@revolt/state/stores/Voice";
+import { TrackReference } from "solid-livekit-components";
 import {
   API,
   Bot,
@@ -18,8 +20,6 @@ import {
   User,
   VideoEmbed,
 } from "stoat.js";
-import { TrackReference } from "solid-livekit-components";
-import { ScreenShareQualityName } from "@revolt/state/stores/Voice";
 import { ProtocolV1 } from "stoat.js/lib/events/v1";
 
 import type { SettingsConfigurations } from "@revolt/app";
@@ -198,7 +198,7 @@ export type Modals =
       type: "mfa_enable_totp";
       identifier: string;
       secret: string;
-      callback: (code?: string) => void;
+      callback: (code?: string) => Promise<void>;
     }
   | ({
       type: "mfa_flow";
