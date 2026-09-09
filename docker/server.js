@@ -154,9 +154,30 @@ app.get("/voice-test-bot-token", (_req, res) => {
 // Serve DeepFilterNet3 WASM/model assets (self-hosted to avoid CDN dependency)
 app.use("/df3-assets", express.static(path.join(__dirname, "df3-assets")));
 
-// Serve the SPA static files with single-page fallback
-app.use(express.static(DIST));
-app.get("*", (_req, res) => res.sendFile(path.join(DIST, "index.html")));
+// Serve the SPA static files with single-page fallback.
+//
+// index.html and the service worker must always be revalidated, or a client
+// keeps booting the previous deploy's bundle from disk cache and never learns
+// there is a new one. Upstream 951676ca added a <meta http-equiv> for this,
+// but browsers ignore meta cache-control for the document itself - the header
+// is the part that actually works. Everything else under DIST is content
+// hashed by vite and stays cacheable.
+const ALWAYS_REVALIDATE = new Set(["index.html", "serviceWorker.js"]);
+
+app.use(
+  express.static(DIST, {
+    setHeaders: (res, filePath) => {
+      if (ALWAYS_REVALIDATE.has(path.basename(filePath))) {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
+  }),
+);
+
+app.get("*", (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache");
+  res.sendFile(path.join(DIST, "index.html"));
+});
 
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`Web server :${PORT}  jukebox → ${PLEX_TARGET}`)

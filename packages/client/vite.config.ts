@@ -10,6 +10,7 @@ import solidPlugin from "vite-plugin-solid";
 import solidSvg from "vite-plugin-solid-svg";
 
 import codegenPlugin from "./codegen.plugin";
+import { addFontPreload } from "./fontpreload.plugin";
 
 const base = process.env.BASE_PATH ?? "/";
 
@@ -25,6 +26,7 @@ export default defineConfig({
     solidSvg({
       defaultAsComponent: false,
     }),
+    addFontPreload(),
     VitePWA({
       srcDir: "src",
       registerType: "autoUpdate",
@@ -35,6 +37,13 @@ export default defineConfig({
         // old limit. Set high enough to cover code growth without excluding
         // genuinely large non-essential assets (Silero is excluded below).
         maximumFileSizeToCacheInBytes: 8_000_000,
+        // injectManifest defaults to js/css/html only, so the material
+        // symbols font was never precached and icons broke on a bad
+        // connection (upstream d17b1ea3). Keep that default set as-is and
+        // add just the font: widening it to the generateSW default
+        // (ico/png/svg) pulls in a 9.46 MB profile-effect PNG and fails the
+        // build against maximumFileSizeToCacheInBytes.
+        globPatterns: ["**/*.{js,css,html}", "**/material-symbols-*.woff2"],
         // [VAD-IMPROVEMENT-#8] Exclude self-hosted Silero VAD assets from the
         // service worker precache. The ORT wasm files (~25 MB jsep, ~12 MB
         // baseline) blow past any sensible precache budget, and they're
