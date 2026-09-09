@@ -13,7 +13,6 @@ import { styled } from "styled-system/jsx";
 import { decodeTime, ulid } from "ulid";
 
 import { DraftMessages, Messages } from "@revolt/app";
-import { VoiceChannelContent } from "../VoiceChannelPage";
 import { useClient } from "@revolt/client";
 import { Keybind, KeybindAction, createKeybind } from "@revolt/keybinds";
 import { useNavigate, useSmartParams } from "@revolt/routing";
@@ -29,6 +28,7 @@ import {
 } from "@revolt/ui";
 import { ChannelHeader } from "../ChannelHeader";
 import { ChannelPageProps } from "../ChannelPage";
+import { VoiceChannelContent } from "../VoiceChannelPage";
 
 import { MessageComposition } from "./Composition";
 import { MemberSidebar } from "./MemberSidebar";
@@ -48,6 +48,21 @@ export type SidebarState =
   | {
       state: "default";
     };
+
+/**
+ * Servers to not fetch all members for
+ */
+const LARGE_SERVERS = [
+  "01F7ZSBSFHQ8TA81725KQCSDDP",
+  "01G3PKD1YJ2H484MDX6KP9WRBN",
+  // top servers on discover
+  "01K313D0VP0HPNG30DNZ4Q672H",
+  "01J31CCMTYKFPGCM13VRP3B289",
+  "01H2Y4Y97PW6584PHN1TAVN5WR",
+  "01HVKQBBQ3DQVVNK3M8DHXV30D",
+  "01GDS83RMZW89AV0BZG24NEXYC",
+  "01J5W0XERBBGK77BMDVPZJ20JW",
+];
 
 /**
  * Channel component
@@ -156,6 +171,23 @@ export function TextChannel(props: ChannelPageProps) {
     (props.channel.isVoice && props.channel.type === "TextChannel") ||
     props.channel.type === "VoiceChannel";
 
+  // Sync the member list here rather than in MemberSidebar: it has to happen
+  // even when the sidebar is closed, or @-autocomplete has nobody to offer.
+  // todo: useQuery
+  createEffect(
+    on(
+      () => props.channel.serverId,
+      (serverId) =>
+        props.channel.type === "TextChannel" &&
+        // The old second argument (a 200-user cap) is gone: stoat.js 0.15
+        // replaced that hack with out-of-batch hydration (upstream ee0a9803),
+        // which is what the cap was working around.
+        props.channel.server?.syncMembers(
+          LARGE_SERVERS.includes(serverId) ? true : false,
+        ),
+    ),
+  );
+
   return (
     <>
       <Header placement="primary">
@@ -166,46 +198,51 @@ export function TextChannel(props: ChannelPageProps) {
         />
       </Header>
       <Content>
-        <Show when={isVoice()} fallback={
-          <main class={main()}>
-            <BelowFloatingHeader>
-              <div>
-                <NewMessages
-                  lastId={lastId}
-                  jumpBack={() => navigate(lastId()!)}
-                  dismiss={() => setLastId()}
-                />
-              </div>
-            </BelowFloatingHeader>
+        <Show
+          when={isVoice()}
+          fallback={
+            <main class={main()}>
+              <BelowFloatingHeader>
+                <div>
+                  <NewMessages
+                    lastId={lastId}
+                    jumpBack={() => navigate(lastId()!)}
+                    dismiss={() => setLastId()}
+                  />
+                </div>
+              </BelowFloatingHeader>
 
-            <Messages
-              channel={props.channel}
-              lastReadId={lastId}
-              pendingMessages={(pendingProps) => (
-                <DraftMessages
-                  channel={props.channel}
-                  tail={pendingProps.tail}
-                  sentIds={pendingProps.ids}
-                />
-              )}
-              typingIndicator={
-                <TypingIndicator
-                  users={props.channel.typing}
-                  ownId={client().user!.id}
-                />
-              }
-              highlightedMessageId={highlightMessageId}
-              clearHighlightedMessage={() => navigate(".")}
-              atEndRef={(ref) => (atEndRef = ref)}
-              jumpToBottomRef={(ref) => (jumpToBottomRef = ref)}
-            />
+              <Messages
+                channel={props.channel}
+                lastReadId={lastId}
+                pendingMessages={(pendingProps) => (
+                  <DraftMessages
+                    channel={props.channel}
+                    tail={pendingProps.tail}
+                    sentIds={pendingProps.ids}
+                  />
+                )}
+                typingIndicator={
+                  <TypingIndicator
+                    users={props.channel.typing}
+                    ownId={client().user!.id}
+                  />
+                }
+                highlightedMessageId={highlightMessageId}
+                clearHighlightedMessage={() => navigate(".")}
+                atEndRef={(ref) => (atEndRef = ref)}
+                jumpToBottomRef={(ref) => (jumpToBottomRef = ref)}
+              />
 
-            <MessageComposition
-              channel={props.channel}
-              onMessageSend={() => requestAnimationFrame(() => jumpToBottomRef?.())}
-            />
-          </main>
-        }>
+              <MessageComposition
+                channel={props.channel}
+                onMessageSend={() =>
+                  requestAnimationFrame(() => jumpToBottomRef?.())
+                }
+              />
+            </main>
+          }
+        >
           <VoiceChannelContent channel={props.channel} />
         </Show>
         <Show
@@ -236,6 +273,7 @@ export function TextChannel(props: ChannelPageProps) {
                   channel={props.channel}
                   scrollTargetElement={sidebarScrollTargetElement}
                   isVoice={isVoice()}
+                  isLargeServer={LARGE_SERVERS.includes(props.channel.serverId)}
                 />
               }
             >

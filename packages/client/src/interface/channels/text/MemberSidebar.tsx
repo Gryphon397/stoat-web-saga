@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createEffect, createMemo, on } from "solid-js";
+import { Match, Show, Switch, createMemo } from "solid-js";
 
 import { useLingui } from "@lingui-solid/solid/macro";
 import { VirtualContainer } from "@minht11/solid-virtual-container";
@@ -7,9 +7,9 @@ import { styled } from "styled-system/jsx";
 
 import { floatingUserMenus } from "@revolt/app/menus/UserContextMenu";
 import { useClient } from "@revolt/client";
-import { useState } from "@revolt/state";
 import { TextWithEmoji } from "@revolt/markdown";
 import { userInformation } from "@revolt/markdown/users";
+import { useState } from "@revolt/state";
 import {
   Avatar,
   Deferred,
@@ -37,6 +37,11 @@ interface Props {
    * Whether this sidebar is for a voice channel
    */
   isVoice?: boolean;
+
+  /**
+   * Whether the server is very large and should not display all member information
+   */
+  isLargeServer?: boolean;
 }
 
 /**
@@ -56,6 +61,7 @@ export function MemberSidebar(props: Props) {
           channel={props.channel}
           scrollTargetElement={props.scrollTargetElement}
           isVoice={props.isVoice}
+          isLargeServer={props.isLargeServer}
         />
       </Match>
     </Switch>
@@ -63,39 +69,10 @@ export function MemberSidebar(props: Props) {
 }
 
 /**
- * Servers to not fetch all members for
- */
-const LARGE_SERVERS = [
-  "01F7ZSBSFHQ8TA81725KQCSDDP",
-  "01G3PKD1YJ2H484MDX6KP9WRBN",
-  // top servers on discover
-  "01K313D0VP0HPNG30DNZ4Q672H",
-  "01J31CCMTYKFPGCM13VRP3B289",
-  "01H2Y4Y97PW6584PHN1TAVN5WR",
-  "01HVKQBBQ3DQVVNK3M8DHXV30D",
-  "01GDS83RMZW89AV0BZG24NEXYC",
-  "01J5W0XERBBGK77BMDVPZJ20JW",
-];
-
-/**
  * Server Member Sidebar
  */
 export function ServerMemberSidebar(props: Props) {
   const client = useClient();
-
-  // todo: useQuery
-  createEffect(
-    on(
-      () => props.channel.serverId,
-      (serverId) =>
-        // The old second argument (a 200-user cap) is gone: stoat.js 0.15
-        // replaced that hack with out-of-batch hydration (upstream ee0a9803),
-        // which is what the cap was working around.
-        props.channel.server?.syncMembers(
-          LARGE_SERVERS.includes(serverId) ? true : false,
-        ),
-    ),
-  );
 
   // Stage 1: Find roles and members
   const stage1 = createMemo(() => {
@@ -251,7 +228,7 @@ export function ServerMemberSidebar(props: Props) {
 
   return (
     <Container>
-      <Show when={!LARGE_SERVERS.includes(props.channel.serverId)}>
+      <Show when={!props.isLargeServer}>
         <MemberTitle bottomMargin="yes">
           <Row align>
             <UserStatus size="0.7em" status="Online" />
@@ -388,7 +365,11 @@ const NameStatusStack = styled("div", {
 /**
  * Member
  */
-function Member(props: { user?: User; member?: ServerMember; isVoice?: boolean }) {
+function Member(props: {
+  user?: User;
+  member?: ServerMember;
+  isVoice?: boolean;
+}) {
   const { t } = useLingui();
   const state = useState();
 
@@ -442,11 +423,15 @@ function Member(props: { user?: User; member?: ServerMember; isVoice?: boolean }
             }
           />
         }
-        style={nameplateUrl() ? {
-          "background-image": `url(${nameplateUrl()})`,
-          "background-size": "100% 100%",
-          "background-repeat": "no-repeat",
-        } : {}}
+        style={
+          nameplateUrl()
+            ? {
+                "background-image": `url(${nameplateUrl()})`,
+                "background-size": "100% 100%",
+                "background-repeat": "no-repeat",
+              }
+            : {}
+        }
       >
         <NameStatusStack>
           <OverflowingText>
