@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 
 import { css } from "styled-system/css";
 import { styled } from "styled-system/jsx";
@@ -8,8 +8,8 @@ import { useState } from "@revolt/state";
 import { Column, Row, Text } from "@revolt/ui";
 
 /**
- * Nameplate picker — shows all available nameplates in a scrollable grid.
- * Selection is saved immediately to the server.
+ * Nameplate picker — shows the catalogue grouped by Discord theme, with a
+ * horizontal chip strip to filter by category. Selection is saved immediately.
  */
 export function NameplatePicker() {
   const client = useClient();
@@ -19,13 +19,31 @@ export function NameplatePicker() {
   const currentNameplateId = () =>
     state.nameplates.userNameplates[currentUserId()] ?? null;
 
+  const [selectedCategory, setSelectedCategory] = createSignal<string | null>(null);
+
   async function select(id: string | null) {
     const uid = currentUserId();
     if (!uid) return;
     await state.nameplates.setNameplate(uid, id);
   }
 
-  const entries = createMemo(() => state.nameplates.catalogue);
+  const categories = createMemo(() => {
+    const set = new Set<string>();
+    for (const e of state.nameplates.catalogue) {
+      if (e.category) set.add(e.category);
+    }
+    return [...set].sort((a, b) => {
+      if (a === "Retired") return 1;
+      if (b === "Retired") return -1;
+      return a.localeCompare(b);
+    });
+  });
+
+  const visibleEntries = createMemo(() => {
+    const cat = selectedCategory();
+    if (cat === null) return state.nameplates.catalogue;
+    return state.nameplates.catalogue.filter((e) => e.category === cat);
+  });
 
   return (
     <Column gap="md">
@@ -36,8 +54,27 @@ export function NameplatePicker() {
         A decorative background displayed behind your username in the chat.
       </Text>
 
+      <CategoryChipStrip>
+        <CategoryChip
+          active={selectedCategory() === null}
+          onClick={() => setSelectedCategory(null)}
+        >
+          All
+        </CategoryChip>
+        <For each={categories()}>
+          {(cat) => (
+            <CategoryChip
+              active={selectedCategory() === cat}
+              onClick={() => setSelectedCategory(cat)}
+            >
+              {cat}
+            </CategoryChip>
+          )}
+        </For>
+      </CategoryChipStrip>
+
       <Grid>
-        <For each={entries()}>
+        <For each={visibleEntries()}>
           {(entry) => (
             <NameplateTile
               selected={currentNameplateId() === entry.id}
@@ -70,8 +107,8 @@ export function NameplatePicker() {
           <Text size="small">
             Current nameplate:{" "}
             <strong>
-              {entries().find((e) => e.id === currentNameplateId())?.name ??
-                currentNameplateId()}
+              {state.nameplates.catalogue.find((e) => e.id === currentNameplateId())
+                ?.name ?? currentNameplateId()}
             </strong>
           </Text>
         </Row>
@@ -128,6 +165,44 @@ function NameplateTile(props: {
     </div>
   );
 }
+
+const CategoryChipStrip = styled("div", {
+  base: {
+    display: "flex",
+    gap: "6px",
+    overflowX: "auto",
+    paddingBottom: "4px",
+    flexShrink: 0,
+  },
+});
+
+const CategoryChip = styled("button", {
+  base: {
+    flexShrink: 0,
+    padding: "4px 12px",
+    borderRadius: "var(--borderRadius-full)",
+    border: "1px solid var(--md-sys-color-outline-variant)",
+    background: "transparent",
+    color: "var(--md-sys-color-on-surface)",
+    cursor: "pointer",
+    fontSize: "0.8125rem",
+    fontWeight: 500,
+    whiteSpace: "nowrap",
+    transition: "background 0.15s, color 0.15s, border-color 0.15s",
+    "&:hover": {
+      background: "var(--md-sys-color-surface-container)",
+    },
+  },
+  variants: {
+    active: {
+      true: {
+        background: "var(--md-sys-color-primary)",
+        color: "var(--md-sys-color-on-primary)",
+        borderColor: "var(--md-sys-color-primary)",
+      },
+    },
+  },
+});
 
 const NoneLabel = styled("span", {
   base: {

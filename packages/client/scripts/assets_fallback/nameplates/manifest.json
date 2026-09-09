@@ -1,93 +1,1407 @@
 [
   {
-    "id": "vengeance",
-    "name": "Vengeance",
-    "category": "nameplates",
-    "cdnSlug": "vengeance",
-    "url": "/assets/nameplates/images/vengeance.png"
+    "id": "1447609133011304529",
+    "name": "Woodsprite",
+    "category": "Avatar",
+    "cdnSlug": "gargamel",
+    "cdnSku": "1447609133011304529",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1447609133011304529.png"
   },
   {
-    "id": "cherry_blossoms",
-    "name": "Cherry Blossoms",
-    "category": "nameplates",
-    "cdnSlug": "cherry_blossoms",
-    "url": "/assets/nameplates/images/cherry_blossoms.png"
+    "id": "1412514944766967908",
+    "name": "Claptrap",
+    "category": "Borderlands 4",
+    "cdnSlug": "box",
+    "cdnSku": "1412514944766967908",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1412514944766967908.png"
   },
   {
-    "id": "koi_pond",
-    "name": "Koi Pond",
-    "category": "nameplates",
-    "cdnSlug": "koi_pond",
-    "url": "/assets/nameplates/images/koi_pond.png"
+    "id": "1412514944787808507",
+    "name": "Ripper Awakens",
+    "category": "Borderlands 4",
+    "cdnSlug": "box",
+    "cdnSku": "1412514944787808507",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1412514944787808507.png"
   },
   {
-    "id": "spirit_of_spring",
-    "name": "Spirit of Spring",
-    "category": "nameplates",
-    "cdnSlug": "spirit_of_spring",
-    "url": "/assets/nameplates/images/spirit_of_spring.png"
+    "id": "1412514944817168587",
+    "name": "Shattered Veil",
+    "category": "Borderlands 4",
+    "cdnSlug": "box",
+    "cdnSku": "1412514944817168587",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1412514944817168587.png"
   },
   {
-    "id": "cat_beans",
+    "id": "1412514944846528584",
+    "name": "Vault",
+    "category": "Borderlands 4",
+    "cdnSlug": "box",
+    "cdnSku": "1412514944846528584",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1412514944846528584.png"
+  },
+  {
+    "id": "1436367668990050304",
+    "name": "2035",
+    "category": "Call of Duty: Black Ops 7",
+    "cdnSlug": "straw",
+    "cdnSku": "1436367668990050304",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1436367668990050304.png"
+  },
+  {
+    "id": "1436367668964884690",
+    "name": "Bye Bye",
+    "category": "Call of Duty: Black Ops 7",
+    "cdnSlug": "straw",
+    "cdnSku": "1436367668964884690",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1436367668964884690.png"
+  },
+  {
+    "id": "1436367668922941471",
+    "name": "Camo Master",
+    "category": "Call of Duty: Black Ops 7",
+    "cdnSlug": "straw",
+    "cdnSku": "1436367668922941471",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1436367668922941471.png"
+  },
+  {
+    "id": "1436367669031993384",
+    "name": "Fluttering Static",
+    "category": "Call of Duty: Black Ops 7",
+    "cdnSlug": "straw",
+    "cdnSku": "1436367669031993384",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1436367669031993384.png"
+  },
+  {
+    "id": "1436367668943913131",
+    "name": "Squad Wipe",
+    "category": "Call of Duty: Black Ops 7",
+    "cdnSlug": "straw",
+    "cdnSku": "1436367668943913131",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1436367668943913131.png"
+  },
+  {
+    "id": "1432550258357043320",
+    "name": "Cosmic Twilight Flow (Amethyst)",
+    "category": "Cosmos",
+    "cdnSlug": "cosmos",
+    "cdnSku": "1432550258357043320",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1432550258357043320.png"
+  },
+  {
+    "id": "1432550258365435934",
+    "name": "Cosmic Twilight Flow (Beryl)",
+    "category": "Cosmos",
+    "cdnSlug": "cosmos",
+    "cdnSku": "1432550258365435934",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1432550258365435934.png"
+  },
+  {
+    "id": "1495806356999897240",
+    "name": "Cloud Nine",
+    "category": "Cozy Getaway",
+    "cdnSlug": "cloud_nine",
+    "cdnSku": "1495806356999897240",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1495806356999897240.png"
+  },
+  {
+    "id": "1495807265175900180",
+    "name": "Pitter Patter",
+    "category": "Cozy Getaway",
+    "cdnSlug": "pitter_patter",
+    "cdnSku": "1495807265175900180",
+    "palette": "forest",
+    "url": "/assets/nameplates/images/1495807265175900180.png"
+  },
+  {
+    "id": "1495806574269038713",
+    "name": "Star Struck",
+    "category": "Cozy Getaway",
+    "cdnSlug": "star_struck",
+    "cdnSku": "1495806574269038713",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1495806574269038713.png"
+  },
+  {
+    "id": "1495807012888379624",
+    "name": "Toasty",
+    "category": "Cozy Getaway",
+    "cdnSlug": "toasty",
+    "cdnSku": "1495807012888379624",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1495807012888379624.png"
+  },
+  {
+    "id": "1400163655487848501",
+    "name": "Dragon Ball",
+    "category": "Dragon Ball Daima",
+    "cdnSlug": "rock",
+    "cdnSku": "1400163655487848501",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1400163655487848501.png"
+  },
+  {
+    "id": "1400163655399641249",
+    "name": "Gomah",
+    "category": "Dragon Ball Daima",
+    "cdnSlug": "rock",
+    "cdnSku": "1400163655399641249",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1400163655399641249.png"
+  },
+  {
+    "id": "1400163655462555658",
+    "name": "Mini Goku",
+    "category": "Dragon Ball Daima",
+    "cdnSlug": "rock",
+    "cdnSku": "1400163655462555658",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1400163655462555658.png"
+  },
+  {
+    "id": "1400163655424933978",
+    "name": "Mini Vegeta",
+    "category": "Dragon Ball Daima",
+    "cdnSlug": "rock",
+    "cdnSku": "1400163655424933978",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1400163655424933978.png"
+  },
+  {
+    "id": "1385035256083648542",
+    "name": "D20 Roll",
+    "category": "Dungeons & Dragons",
+    "cdnSlug": "chance",
+    "cdnSku": "1385035256083648542",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1385035256083648542.png"
+  },
+  {
+    "id": "1385035256104620154",
+    "name": "Owlbear Cub",
+    "category": "Dungeons & Dragons",
+    "cdnSlug": "chance",
+    "cdnSku": "1385035256104620154",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1385035256104620154.png"
+  },
+  {
+    "id": "1385035256058482798",
+    "name": "Red Dragon",
+    "category": "Dungeons & Dragons",
+    "cdnSlug": "chance",
+    "cdnSku": "1385035256058482798",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1385035256058482798.png"
+  },
+  {
+    "id": "1478148370827710649",
+    "name": "Lucky Bunny",
+    "category": "Feeling Lucky",
+    "cdnSlug": "lucky_bunny",
+    "cdnSku": "1478148370827710649",
+    "palette": "clover",
+    "url": "/assets/nameplates/images/1478148370827710649.png"
+  },
+  {
+    "id": "1478148579322364150",
+    "name": "Lucky Clover",
+    "category": "Feeling Lucky",
+    "cdnSlug": "lucky_clover",
+    "cdnSku": "1478148579322364150",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1478148579322364150.png"
+  },
+  {
+    "id": "1498448010940780834",
+    "name": "Banana Bliss",
+    "category": "Fruitables",
+    "cdnSlug": "banana_bliss",
+    "cdnSku": "1498448010940780834",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1498448010940780834.png"
+  },
+  {
+    "id": "1498447882569908435",
+    "name": "Cherry Surprise",
+    "category": "Fruitables",
+    "cdnSlug": "cherry_surprise",
+    "cdnSku": "1498447882569908435",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1498447882569908435.png"
+  },
+  {
+    "id": "1498447721600909352",
+    "name": "Ichi-Nyan",
+    "category": "Fruitables",
+    "cdnSlug": "ichi-nyan",
+    "cdnSku": "1498447721600909352",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1498447721600909352.png"
+  },
+  {
+    "id": "1462116614077022469",
+    "name": "Dark Roses",
+    "category": "Gothica",
+    "cdnSlug": "gothica",
+    "cdnSku": "1462116614077022469",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1462116614077022469.png"
+  },
+  {
+    "id": "1462116614106382346",
+    "name": "Gothic Arches",
+    "category": "Gothica",
+    "cdnSlug": "gothica",
+    "cdnSku": "1462116614106382346",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1462116614106382346.png"
+  },
+  {
+    "id": "1462116614131548265",
+    "name": "Nevermore",
+    "category": "Gothica",
+    "cdnSlug": "gothica",
+    "cdnSku": "1462116614131548265",
+    "palette": "white",
+    "url": "/assets/nameplates/images/1462116614131548265.png"
+  },
+  {
+    "id": "1488246309197713542",
+    "name": "Badtz-maru",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "badtz-maru",
+    "cdnSku": "1488246309197713542",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1488246309197713542.png"
+  },
+  {
+    "id": "1488245996054904983",
+    "name": "Chococat",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "chococat",
+    "cdnSku": "1488245996054904983",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1488245996054904983.png"
+  },
+  {
+    "id": "1488245478213816320",
+    "name": "Cinnamoroll",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "cinnamoroll",
+    "cdnSku": "1488245478213816320",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1488245478213816320.png"
+  },
+  {
+    "id": "1488246136585060452",
+    "name": "gudetama",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "gudetama",
+    "cdnSku": "1488246136585060452",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1488246136585060452.png"
+  },
+  {
+    "id": "1488244924066566185",
+    "name": "Hello Kitty",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "hello_kitty",
+    "cdnSku": "1488244924066566185",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1488244924066566185.png"
+  },
+  {
+    "id": "1488245817364975626",
+    "name": "Kuromi x My Melody",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "kuromi_x_my_melody",
+    "cdnSku": "1488245817364975626",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1488245817364975626.png"
+  },
+  {
+    "id": "1488245662947475506",
+    "name": "Pochacco",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "pochacco",
+    "cdnSku": "1488245662947475506",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1488245662947475506.png"
+  },
+  {
+    "id": "1488245189482123364",
+    "name": "Pompompurin",
+    "category": "Hello Kitty and Friends",
+    "cdnSlug": "pompompurin",
+    "cdnSku": "1488245189482123364",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1488245189482123364.png"
+  },
+  {
+    "id": "1469125797351657657",
+    "name": "Go Sports!",
+    "category": "It's Gametime",
+    "cdnSlug": "go_sports!",
+    "cdnSku": "1469125797351657657",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1469125797351657657.png"
+  },
+  {
+    "id": "1469126030559023146",
+    "name": "Hot Dog",
+    "category": "It's Gametime",
+    "cdnSlug": "hot_dog",
+    "cdnSku": "1469126030559023146",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1469126030559023146.png"
+  },
+  {
+    "id": "1420225379284553810",
+    "name": "Encore! (Orange)",
+    "category": "It's Showtime",
+    "cdnSlug": "its_showtime",
+    "cdnSku": "1420225379284553810",
+    "palette": "lemon",
+    "url": "/assets/nameplates/images/1420225379284553810.png"
+  },
+  {
+    "id": "1420225379293204593",
+    "name": "Encore! (Teal)",
+    "category": "It's Showtime",
+    "cdnSlug": "its_showtime",
+    "cdnSku": "1420225379293204593",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1420225379293204593.png"
+  },
+  {
+    "id": "1428438925067817093",
+    "name": "Ryomen Sukuna",
+    "category": "Jujutsu Kaisen",
+    "cdnSlug": "plastic",
+    "cdnSku": "1428438925067817093",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1428438925067817093.png"
+  },
+  {
+    "id": "1428438925046714408",
+    "name": "Satoru Gojo",
+    "category": "Jujutsu Kaisen",
+    "cdnSlug": "plastic",
+    "cdnSku": "1428438925046714408",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1428438925046714408.png"
+  },
+  {
+    "id": "1428438925021548544",
+    "name": "Yuji Itadori",
+    "category": "Jujutsu Kaisen",
+    "cdnSlug": "plastic",
+    "cdnSku": "1428438925021548544",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1428438925021548544.png"
+  },
+  {
+    "id": "1459194821490245734",
+    "name": "Cutesy Bow",
+    "category": "LOVE XP",
+    "cdnSlug": "love_xp",
+    "cdnSku": "1459194821490245734",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1459194821490245734.png"
+  },
+  {
+    "id": "1459194821427331220",
+    "name": "Hunny Bunnies",
+    "category": "LOVE XP",
+    "cdnSlug": "love_xp",
+    "cdnSku": "1459194821427331220",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1459194821427331220.png"
+  },
+  {
+    "id": "1459194821519605784",
+    "name": "Lil Stinker",
+    "category": "LOVE XP",
+    "cdnSlug": "love_xp",
+    "cdnSku": "1459194821519605784",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1459194821519605784.png"
+  },
+  {
+    "id": "1459194821456691393",
+    "name": "Lone Wolf",
+    "category": "LOVE XP",
+    "cdnSlug": "love_xp",
+    "cdnSku": "1459194821456691393",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1459194821456691393.png"
+  },
+  {
+    "id": "1459194821372805192",
+    "name": "Love Meter",
+    "category": "LOVE XP",
+    "cdnSlug": "love_xp",
+    "cdnSku": "1459194821372805192",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1459194821372805192.png"
+  },
+  {
+    "id": "1459194821397971065",
+    "name": "Mischief Meter",
+    "category": "LOVE XP",
+    "cdnSlug": "love_xp",
+    "cdnSku": "1459194821397971065",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1459194821397971065.png"
+  },
+  {
+    "id": "1409898407945834558",
+    "name": "Luna Moth",
+    "category": "Lunar Eclipse",
+    "cdnSlug": "lunar_eclipse",
+    "cdnSku": "1409898407945834558",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1409898407945834558.png"
+  },
+  {
+    "id": "1409898407971127427",
+    "name": "Moon Essence",
+    "category": "Lunar Eclipse",
+    "cdnSlug": "lunar_eclipse",
+    "cdnSku": "1409898407971127427",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1409898407971127427.png"
+  },
+  {
+    "id": "1409898407920668782",
+    "name": "Moonlit Charm",
+    "category": "Lunar Eclipse",
+    "cdnSlug": "lunar_eclipse",
+    "cdnSku": "1409898407920668782",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1409898407920668782.png"
+  },
+  {
+    "id": "1379220459245015123",
+    "name": "Black Mana",
+    "category": "Magic: The Gathering",
+    "cdnSlug": "spell",
+    "cdnSku": "1379220459245015123",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1379220459245015123.png"
+  },
+  {
+    "id": "1379220459224043560",
+    "name": "Blue Mana",
+    "category": "Magic: The Gathering",
+    "cdnSlug": "spell",
+    "cdnSku": "1379220459224043560",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1379220459224043560.png"
+  },
+  {
+    "id": "1379220459286958180",
+    "name": "Green Mana",
+    "category": "Magic: The Gathering",
+    "cdnSlug": "spell",
+    "cdnSku": "1379220459286958180",
+    "palette": "clover",
+    "url": "/assets/nameplates/images/1379220459286958180.png"
+  },
+  {
+    "id": "1379220459265986670",
+    "name": "Red Mana",
+    "category": "Magic: The Gathering",
+    "cdnSlug": "spell",
+    "cdnSku": "1379220459265986670",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1379220459265986670.png"
+  },
+  {
+    "id": "1379220459203072050",
+    "name": "White Mana",
+    "category": "Magic: The Gathering",
+    "cdnSlug": "spell",
+    "cdnSku": "1379220459203072050",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1379220459203072050.png"
+  },
+  {
+    "id": "1471910867741179967",
+    "name": "Daisy Dream Bubbles",
+    "category": "Mickey & Friends",
+    "cdnSlug": "daisy_dream_bubbles",
+    "cdnSku": "1471910867741179967",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1471910867741179967.png"
+  },
+  {
+    "id": "1471910608386392136",
+    "name": "Donald Splish Splash",
+    "category": "Mickey & Friends",
+    "cdnSlug": "donald_splish_splash",
+    "cdnSku": "1471910608386392136",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1471910608386392136.png"
+  },
+  {
+    "id": "1471911196448784704",
+    "name": "Goofy Happy Tune",
+    "category": "Mickey & Friends",
+    "cdnSlug": "goofy_happy_tune",
+    "cdnSku": "1471911196448784704",
+    "palette": "clover",
+    "url": "/assets/nameplates/images/1471911196448784704.png"
+  },
+  {
+    "id": "1471909787355840626",
+    "name": "Mickey Twinkle Star",
+    "category": "Mickey & Friends",
+    "cdnSlug": "mickey_twinkle_star",
+    "cdnSku": "1471909787355840626",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1471909787355840626.png"
+  },
+  {
+    "id": "1471910272783482993",
+    "name": "Minnie True Love",
+    "category": "Mickey & Friends",
+    "cdnSlug": "minnie_true_love",
+    "cdnSku": "1471910272783482993",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1471910272783482993.png"
+  },
+  {
+    "id": "1471911380490780703",
+    "name": "Pluto Playful Friend",
+    "category": "Mickey & Friends",
+    "cdnSlug": "pluto_playful_friend",
+    "cdnSku": "1471911380490780703",
+    "palette": "clover",
+    "url": "/assets/nameplates/images/1471911380490780703.png"
+  },
+  {
+    "id": "1427463138646954035",
+    "name": "Infinite Swirl",
+    "category": "Orb",
+    "cdnSlug": "orb",
+    "cdnSku": "1427463138646954035",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1427463138646954035.png"
+  },
+  {
+    "id": "1427463138646954036",
+    "name": "Magic Mists",
+    "category": "Orb",
+    "cdnSlug": "orb",
+    "cdnSku": "1427463138646954036",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1427463138646954036.png"
+  },
+  {
+    "id": "1349849614311751731",
+    "name": "Angels",
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614311751731",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1349849614311751731.png"
+  },
+  {
+    "id": "1382845914192023632",
+    "name": "Aurora",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v3",
+    "cdnSku": "1382845914192023632",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1382845914192023632.png"
+  },
+  {
+    "id": "1417311919429128312",
+    "name": "Berry Bunny",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919429128312",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1417311919429128312.png"
+  },
+  {
+    "id": "1417311919576055949",
+    "name": "Bloomling",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919576055949",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1417311919576055949.png"
+  },
+  {
+    "id": "1382845914225442886",
+    "name": "Bonsai",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v3",
+    "cdnSku": "1382845914225442886",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1382845914225442886.png"
+  },
+  {
+    "id": "1349849614143979540",
     "name": "Cat Beans",
-    "category": "nameplates",
-    "cdnSlug": "cat_beans",
-    "url": "/assets/nameplates/images/cat_beans.png"
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614143979540",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1349849614143979540.png"
   },
   {
-    "id": "cityscape",
+    "id": "1349849614102036581",
+    "name": "Cherry Blossoms",
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614102036581",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1349849614102036581.png"
+  },
+  {
+    "id": "1349849614286585866",
     "name": "Cityscape",
-    "category": "nameplates",
-    "cdnSlug": "cityscape",
-    "url": "/assets/nameplates/images/cityscape.png"
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614286585866",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1349849614286585866.png"
   },
   {
-    "id": "twilight",
+    "id": "1417311919664005231",
+    "name": "Cosmic Storm",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919664005231",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1417311919664005231.png"
+  },
+  {
+    "id": "1377377712129179840",
+    "name": "Cozy Cat",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v2",
+    "cdnSku": "1377377712129179840",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1377377712129179840.png"
+  },
+  {
+    "id": "1417311919714336808",
+    "name": "Fairies",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919714336808",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1417311919714336808.png"
+  },
+  {
+    "id": "1417311919735308399",
+    "name": "Firefly Meadow",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919735308399",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1417311919735308399.png"
+  },
+  {
+    "id": "1377377712078848180",
+    "name": "Glitch",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v2",
+    "cdnSku": "1377377712078848180",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1377377712078848180.png"
+  },
+  {
+    "id": "1349849614227865711",
+    "name": "Koi Pond",
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614227865711",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1349849614227865711.png"
+  },
+  {
+    "id": "1382845914292686929",
+    "name": "Oasis",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v3",
+    "cdnSku": "1382845914292686929",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1382845914292686929.png"
+  },
+  {
+    "id": "1377377712062074880",
+    "name": "Pixie Dust",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v2",
+    "cdnSku": "1377377712062074880",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1377377712062074880.png"
+  },
+  {
+    "id": "1417311919689170984",
+    "name": "Planet Rings",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919689170984",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1417311919689170984.png"
+  },
+  {
+    "id": "1377377712028516443",
+    "name": "Spirit Moon",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v2",
+    "cdnSku": "1377377712028516443",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1377377712028516443.png"
+  },
+  {
+    "id": "1349849614173339688",
+    "name": "Spirit of Spring",
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614173339688",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1349849614173339688.png"
+  },
+  {
+    "id": "1417311919601221703",
+    "name": "Sproutling",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919601221703",
+    "palette": "clover",
+    "url": "/assets/nameplates/images/1417311919601221703.png"
+  },
+  {
+    "id": "1377377712104018071",
+    "name": "Starfall Tides",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v2",
+    "cdnSku": "1377377712104018071",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1377377712104018071.png"
+  },
+  {
+    "id": "1417311919555215471",
+    "name": "Starlight Whales",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919555215471",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1417311919555215471.png"
+  },
+  {
+    "id": "1382845914267521117",
+    "name": "Sun and Moon",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v3",
+    "cdnSku": "1382845914267521117",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1382845914267521117.png"
+  },
+  {
+    "id": "1377377712162738196",
+    "name": "Sword of Legend",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v2",
+    "cdnSku": "1377377712162738196",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1377377712162738196.png"
+  },
+  {
+    "id": "1417311919454425269",
+    "name": "The Same Duck",
+    "category": "Originals",
+    "cdnSlug": "nameplate_bonanza",
+    "cdnSku": "1417311919454425269",
+    "palette": "forest",
+    "url": "/assets/nameplates/images/1417311919454425269.png"
+  },
+  {
+    "id": "1382845914317852693",
+    "name": "Touch Grass",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v3",
+    "cdnSku": "1382845914317852693",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1382845914317852693.png"
+  },
+  {
+    "id": "1349849614198505602",
     "name": "Twilight",
-    "category": "nameplates",
-    "cdnSlug": "twilight",
-    "url": "/assets/nameplates/images/twilight.png"
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614198505602",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1349849614198505602.png"
+  },
+  {
+    "id": "1382845914246549535",
+    "name": "Under the Sea",
+    "category": "Originals",
+    "cdnSlug": "nameplates_v3",
+    "cdnSku": "1382845914246549535",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1382845914246549535.png"
+  },
+  {
+    "id": "1349849614257225760",
+    "name": "Vengeance",
+    "category": "Originals",
+    "cdnSlug": "nameplates",
+    "cdnSku": "1349849614257225760",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1349849614257225760.png"
+  },
+  {
+    "id": "1387888352736313414",
+    "name": "Secret Agent",
+    "category": "Skibidi Toilet",
+    "cdnSlug": "paper",
+    "cdnSku": "1387888352736313414",
+    "palette": "forest",
+    "url": "/assets/nameplates/images/1387888352736313414.png"
+  },
+  {
+    "id": "1387888352686112819",
+    "name": "Skibidi Toilet",
+    "category": "Skibidi Toilet",
+    "cdnSlug": "paper",
+    "cdnSku": "1387888352686112819",
+    "palette": "lemon",
+    "url": "/assets/nameplates/images/1387888352686112819.png"
+  },
+  {
+    "id": "1387888352711278602",
+    "name": "TV Woman",
+    "category": "Skibidi Toilet",
+    "cdnSlug": "paper",
+    "cdnSku": "1387888352711278602",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1387888352711278602.png"
+  },
+  {
+    "id": "1458483484598337682",
+    "name": "Dream Waves",
+    "category": "Slumber Party",
+    "cdnSlug": "slumber_party",
+    "cdnSku": "1458483484598337682",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1458483484598337682.png"
+  },
+  {
+    "id": "1458472704524156959",
+    "name": "Moon Bloom",
+    "category": "Slumber Party",
+    "cdnSlug": "slumber_party",
+    "cdnSku": "1458472704524156959",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1458472704524156959.png"
+  },
+  {
+    "id": "1458472704557584465",
+    "name": "Star Drift",
+    "category": "Slumber Party",
+    "cdnSlug": "slumber_party",
+    "cdnSku": "1458472704557584465",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1458472704557584465.png"
+  },
+  {
+    "id": "1493345090855370752",
+    "name": "Busy Bee",
+    "category": "Smol Bugs",
+    "cdnSlug": "busy_bee",
+    "cdnSku": "1493345090855370752",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1493345090855370752.png"
+  },
+  {
+    "id": "1493348788713033878",
+    "name": "Glowies",
+    "category": "Smol Bugs",
+    "cdnSlug": "glowies",
+    "cdnSku": "1493348788713033878",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1493348788713033878.png"
+  },
+  {
+    "id": "1493345236531806338",
+    "name": "Ladybug Luau",
+    "category": "Smol Bugs",
+    "cdnSlug": "ladybug_luau",
+    "cdnSku": "1493345236531806338",
+    "palette": "forest",
+    "url": "/assets/nameplates/images/1493345236531806338.png"
+  },
+  {
+    "id": "1493345371915682006",
+    "name": "Lil' Inchy",
+    "category": "Smol Bugs",
+    "cdnSlug": "lil'_inchy",
+    "cdnSku": "1493345371915682006",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1493345371915682006.png"
+  },
+  {
+    "id": "1493345497526567033",
+    "name": "Roly Poly (Pink)",
+    "category": "Smol Bugs",
+    "cdnSlug": "roly_poly",
+    "cdnSku": "1493345497526567033",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1493345497526567033.png"
+  },
+  {
+    "id": "1481388758455550114",
+    "name": "Spider-Man (Logo)",
+    "category": "Spider-Man vs. Venom",
+    "cdnSlug": "spider-man",
+    "cdnSku": "1481388758455550114",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1481388758455550114.png"
+  },
+  {
+    "id": "1481390594810183700",
+    "name": "Spider-Man vs. Venom",
+    "category": "Spider-Man vs. Venom",
+    "cdnSlug": "spider-man_vs._venom",
+    "cdnSku": "1481390594810183700",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1481390594810183700.png"
+  },
+  {
+    "id": "1481389947515830282",
+    "name": "Venom (Logo)",
+    "category": "Spider-Man vs. Venom",
+    "cdnSlug": "venom",
+    "cdnSku": "1481389947515830282",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1481389947515830282.png"
+  },
+  {
+    "id": "1394404301295714355",
+    "name": "Spirit Blossom Petals",
+    "category": "Spirit Blossom Beyond",
+    "cdnSlug": "petal",
+    "cdnSku": "1394404301295714355",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1394404301295714355.png"
+  },
+  {
+    "id": "1394404301396377710",
+    "name": "Spirit Blossom Springs",
+    "category": "Spirit Blossom Beyond",
+    "cdnSlug": "petal",
+    "cdnSku": "1394404301396377710",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1394404301396377710.png"
+  },
+  {
+    "id": "1394404301354434671",
+    "name": "Yunara's Aion Er'na",
+    "category": "Spirit Blossom Beyond",
+    "cdnSlug": "petal",
+    "cdnSku": "1394404301354434671",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1394404301354434671.png"
+  },
+  {
+    "id": "1498425791443374080",
+    "name": "BB-8",
+    "category": "Star Wars™",
+    "cdnSlug": "bb-8",
+    "cdnSku": "1498425791443374080",
+    "palette": "lemon",
+    "url": "/assets/nameplates/images/1498425791443374080.png"
+  },
+  {
+    "id": "1498418988202328084",
+    "name": "Darth Vader",
+    "category": "Star Wars™",
+    "cdnSlug": "darth_vader",
+    "cdnSku": "1498418988202328084",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1498418988202328084.png"
+  },
+  {
+    "id": "1498424942121848852",
+    "name": "Hyperspace",
+    "category": "Star Wars™",
+    "cdnSlug": "hyperspace",
+    "cdnSku": "1498424942121848852",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1498424942121848852.png"
+  },
+  {
+    "id": "1498425140101386351",
+    "name": "Yoda",
+    "category": "Star Wars™",
+    "cdnSlug": "yoda",
+    "cdnSku": "1498425140101386351",
+    "palette": "forest",
+    "url": "/assets/nameplates/images/1498425140101386351.png"
+  },
+  {
+    "id": "1500910067719999579",
+    "name": "Cosmic Guardian",
+    "category": "Starlight Magic",
+    "cdnSlug": "cosmic_guardian",
+    "cdnSku": "1500910067719999579",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1500910067719999579.png"
+  },
+  {
+    "id": "1500909875515887847",
+    "name": "Heart's Reflection",
+    "category": "Starlight Magic",
+    "cdnSlug": "heart's_reflection",
+    "cdnSku": "1500909875515887847",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1500909875515887847.png"
+  },
+  {
+    "id": "1500910258757828618",
+    "name": "Sweetheart Charm",
+    "category": "Starlight Magic",
+    "cdnSlug": "sweetheart_charm",
+    "cdnSku": "1500910258757828618",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1500910258757828618.png"
+  },
+  {
+    "id": "1461062060254298326",
+    "name": "Hermit's Lantern",
+    "category": "Tarot",
+    "cdnSlug": "tarot",
+    "cdnSku": "1461062060254298326",
+    "palette": "clover",
+    "url": "/assets/nameplates/images/1461062060254298326.png"
+  },
+  {
+    "id": "1461062060300435722",
+    "name": "Manifesting Magic",
+    "category": "Tarot",
+    "cdnSlug": "tarot",
+    "cdnSku": "1461062060300435722",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1461062060300435722.png"
+  },
+  {
+    "id": "1461062060229132369",
+    "name": "Sunlit Radiance",
+    "category": "Tarot",
+    "cdnSlug": "tarot",
+    "cdnSku": "1461062060229132369",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1461062060229132369.png"
+  },
+  {
+    "id": "1461062060279464048",
+    "name": "Tower's Strike",
+    "category": "Tarot",
+    "cdnSlug": "tarot",
+    "cdnSku": "1461062060279464048",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1461062060279464048.png"
+  },
+  {
+    "id": "1437881614205194352",
+    "name": "Encom Grid",
+    "category": "TRON",
+    "cdnSlug": "peanut",
+    "cdnSku": "1437881614205194352",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1437881614205194352.png"
+  },
+  {
+    "id": "1437881613903069387",
+    "name": "Light Wall (Red)",
+    "category": "TRON",
+    "cdnSlug": "peanut",
+    "cdnSku": "1437881613903069387",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1437881613903069387.png"
+  },
+  {
+    "id": "1437881614180028526",
+    "name": "The Grid Fireworks",
+    "category": "TRON",
+    "cdnSlug": "peanut",
+    "cdnSku": "1437881614180028526",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1437881614180028526.png"
+  },
+  {
+    "id": "1420045363141672971",
+    "name": "Autumn Breeze",
+    "category": "Woodland Friends",
+    "cdnSlug": "woodland_friends",
+    "cdnSku": "1420045363141672971",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1420045363141672971.png"
+  },
+  {
+    "id": "1420045363196199065",
+    "name": "Hoppy Boi's Perch",
+    "category": "Woodland Friends",
+    "cdnSlug": "woodland_friends",
+    "cdnSku": "1420045363196199065",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1420045363196199065.png"
+  },
+  {
+    "id": "1420045363171033128",
+    "name": "Petal Bloom",
+    "category": "Woodland Friends",
+    "cdnSlug": "woodland_friends",
+    "cdnSku": "1420045363171033128",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1420045363171033128.png"
+  },
+  {
+    "id": "1465519580016410746",
+    "name": "Blossoming Branch",
+    "category": "Year of the Horse",
+    "cdnSlug": "blossoming_branch",
+    "cdnSku": "1465519580016410746",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1465519580016410746.png"
+  },
+  {
+    "id": "1465519264755617887",
+    "name": "Crimson Stallion",
+    "category": "Year of the Horse",
+    "cdnSlug": "crimson_stallion",
+    "cdnSku": "1465519264755617887",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1465519264755617887.png"
+  },
+  {
+    "id": "1465519789958234259",
+    "name": "Lotus Lanterns",
+    "category": "Year of the Horse",
+    "cdnSlug": "lotus_lanterns",
+    "cdnSku": "1465519789958234259",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1465519789958234259.png"
+  },
+  {
+    "id": "1447654091470802965",
+    "name": "Aquarius",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091470802965",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1447654091470802965.png"
+  },
+  {
+    "id": "1447654090661302343",
+    "name": "Aries",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654090661302343",
+    "palette": "crimson",
+    "url": "/assets/nameplates/images/1447654090661302343.png"
+  },
+  {
+    "id": "1447654090921349235",
+    "name": "Cancer",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654090921349235",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1447654090921349235.png"
+  },
+  {
+    "id": "1447654091390980227",
+    "name": "Capricorn",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091390980227",
+    "palette": "teal",
+    "url": "/assets/nameplates/images/1447654091390980227.png"
+  },
+  {
+    "id": "1447654090816491530",
+    "name": "Gemini",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654090816491530",
+    "palette": "berry",
+    "url": "/assets/nameplates/images/1447654090816491530.png"
+  },
+  {
+    "id": "1447654091026206894",
+    "name": "Leo",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091026206894",
+    "palette": "lemon",
+    "url": "/assets/nameplates/images/1447654091026206894.png"
+  },
+  {
+    "id": "1447654091173007401",
+    "name": "Libra",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091173007401",
+    "palette": "cobalt",
+    "url": "/assets/nameplates/images/1447654091173007401.png"
+  },
+  {
+    "id": "1447654091575660544",
+    "name": "Pisces",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091575660544",
+    "palette": "sky",
+    "url": "/assets/nameplates/images/1447654091575660544.png"
+  },
+  {
+    "id": "1447654091311419392",
+    "name": "Sagittarius",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091311419392",
+    "palette": "bubble_gum",
+    "url": "/assets/nameplates/images/1447654091311419392.png"
+  },
+  {
+    "id": "1447654091240116366",
+    "name": "Scorpio",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091240116366",
+    "palette": "violet",
+    "url": "/assets/nameplates/images/1447654091240116366.png"
+  },
+  {
+    "id": "1447654090736799915",
+    "name": "Taurus",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654090736799915",
+    "palette": "forest",
+    "url": "/assets/nameplates/images/1447654090736799915.png"
+  },
+  {
+    "id": "1447654091097509950",
+    "name": "Virgo",
+    "category": "Zodiac",
+    "cdnSlug": "zodiac",
+    "cdnSku": "1447654091097509950",
+    "palette": "lemon",
+    "url": "/assets/nameplates/images/1447654091097509950.png"
   },
   {
     "id": "angels",
     "name": "Angels",
-    "category": "nameplates",
+    "category": "Retired",
     "cdnSlug": "angels",
     "url": "/assets/nameplates/images/angels.png"
   },
   {
-    "id": "white_mana",
-    "name": "White Mana",
-    "category": "nameplates",
-    "cdnSlug": "spell/white_mana",
-    "url": "/assets/nameplates/images/spell_white_mana.png"
-  },
-  {
     "id": "black_mana",
     "name": "Black Mana",
-    "category": "nameplates",
+    "category": "Retired",
     "cdnSlug": "spell/black_mana",
     "url": "/assets/nameplates/images/spell_black_mana.png"
   },
   {
-    "id": "red_mana",
-    "name": "Red Mana",
-    "category": "nameplates",
-    "cdnSlug": "spell/red_mana",
-    "url": "/assets/nameplates/images/spell_red_mana.png"
+    "id": "blue_mana",
+    "name": "Blue Mana",
+    "category": "Retired",
+    "cdnSlug": "spell/blue_mana",
+    "url": "/assets/nameplates/images/spell_blue_mana.png"
+  },
+  {
+    "id": "cat_beans",
+    "name": "Cat Beans",
+    "category": "Retired",
+    "cdnSlug": "cat_beans",
+    "url": "/assets/nameplates/images/cat_beans.png"
+  },
+  {
+    "id": "cherry_blossoms",
+    "name": "Cherry Blossoms",
+    "category": "Retired",
+    "cdnSlug": "cherry_blossoms",
+    "url": "/assets/nameplates/images/cherry_blossoms.png"
+  },
+  {
+    "id": "cityscape",
+    "name": "Cityscape",
+    "category": "Retired",
+    "cdnSlug": "cityscape",
+    "url": "/assets/nameplates/images/cityscape.png"
   },
   {
     "id": "green_mana",
     "name": "Green Mana",
-    "category": "nameplates",
+    "category": "Retired",
     "cdnSlug": "spell/green_mana",
     "url": "/assets/nameplates/images/spell_green_mana.png"
   },
   {
-    "id": "blue_mana",
-    "name": "Blue Mana",
-    "category": "nameplates",
-    "cdnSlug": "spell/blue_mana",
-    "url": "/assets/nameplates/images/spell_blue_mana.png"
+    "id": "koi_pond",
+    "name": "Koi Pond",
+    "category": "Retired",
+    "cdnSlug": "koi_pond",
+    "url": "/assets/nameplates/images/koi_pond.png"
+  },
+  {
+    "id": "red_mana",
+    "name": "Red Mana",
+    "category": "Retired",
+    "cdnSlug": "spell/red_mana",
+    "url": "/assets/nameplates/images/spell_red_mana.png"
+  },
+  {
+    "id": "spirit_of_spring",
+    "name": "Spirit of Spring",
+    "category": "Retired",
+    "cdnSlug": "spirit_of_spring",
+    "url": "/assets/nameplates/images/spirit_of_spring.png"
+  },
+  {
+    "id": "twilight",
+    "name": "Twilight",
+    "category": "Retired",
+    "cdnSlug": "twilight",
+    "url": "/assets/nameplates/images/twilight.png"
+  },
+  {
+    "id": "vengeance",
+    "name": "Vengeance",
+    "category": "Retired",
+    "cdnSlug": "vengeance",
+    "url": "/assets/nameplates/images/vengeance.png"
+  },
+  {
+    "id": "white_mana",
+    "name": "White Mana",
+    "category": "Retired",
+    "cdnSlug": "spell/white_mana",
+    "url": "/assets/nameplates/images/spell_white_mana.png"
   }
 ]
