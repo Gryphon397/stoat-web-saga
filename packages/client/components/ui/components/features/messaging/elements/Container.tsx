@@ -13,6 +13,8 @@ import {
   Time,
 } from "@revolt/ui/components/utils";
 
+import { Symbol } from "@revolt/ui/components/utils/Symbol";
+
 import { MessageToolbar } from "./MessageToolbar";
 
 interface CommonProps {
@@ -350,14 +352,26 @@ export function MessageContainer(props: Props) {
                     tooltip: {
                       placement: "top",
                       content: (
-                        <>
-                          {t`Sent`}{" "}
-                          <Time
-                            format="datetime"
-                            value={props.timestamp}
-                            referenceTime={props._referenceTime}
-                          />
-                        </>
+                        <Column>
+                          <span>
+                            {t`Sent`}{" "}
+                            <Time
+                              format="datetime"
+                              value={props.timestamp}
+                              referenceTime={props._referenceTime}
+                            />
+                          </span>
+                          <Show when={props.edited}>
+                            <span>
+                              {t`Edited`}{" "}
+                              <Time
+                                format="datetime"
+                                value={props.edited}
+                                referenceTime={props._referenceTime}
+                              />
+                            </span>
+                          </Show>
+                        </Column>
                       ) as string, // ignore aria requirement
                     },
                   }}
@@ -370,6 +384,9 @@ export function MessageContainer(props: Props) {
                 </div>
                 {props.username}
                 {props.info}
+                <Show when={props.edited}>
+                  <Symbol size={16}>edit</Symbol>
+                </Show>
               </CompactInfo>
             </Match>
             <Match when={props.tail}>

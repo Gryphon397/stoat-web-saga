@@ -16,8 +16,8 @@ import { css } from "styled-system/css";
 import { styled } from "styled-system/jsx";
 
 import { Button, Checkbox, Radio2, Text, TextField } from "../design";
-import { Row } from "../layout";
 import { TextEditor2 } from "../features/texteditor/TextEditor2";
+import { Row } from "../layout";
 
 import { FileInput } from "./files";
 
@@ -71,7 +71,9 @@ const FormTextEditor = (
         {...remote}
         onChange={(value) => {
           local.control.setValue(value);
-          local.control.markDirty(true);
+          // Compare against the initial value so that typing an edit and then
+          // undoing it leaves the form clean, rather than permanently dirty.
+          local.control.markDirty(value !== remote.initialValue?.[0]);
         }}
         // todo: required={local.control.isRequired}
         // todo: disabled={local.control.isDisabled}
