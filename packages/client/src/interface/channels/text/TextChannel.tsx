@@ -23,7 +23,6 @@ import {
   Header,
   NewMessages,
   Text,
-  TypingIndicator,
   main,
 } from "@revolt/ui";
 import { ChannelHeader } from "../ChannelHeader";
@@ -31,6 +30,7 @@ import { ChannelPageProps } from "../ChannelPage";
 import { VoiceChannelContent } from "../VoiceChannelPage";
 
 import { MessageComposition } from "./Composition";
+import { CompositionInfo } from "./CompositionInfo";
 import { MemberSidebar } from "./MemberSidebar";
 import { TextSearchSidebar } from "./TextSearchSidebar";
 
@@ -222,17 +222,13 @@ export function TextChannel(props: ChannelPageProps) {
                     sentIds={pendingProps.ids}
                   />
                 )}
-                typingIndicator={
-                  <TypingIndicator
-                    users={props.channel.typing}
-                    ownId={client().user!.id}
-                  />
-                }
                 highlightedMessageId={highlightMessageId}
                 clearHighlightedMessage={() => navigate(".")}
                 atEndRef={(ref) => (atEndRef = ref)}
                 jumpToBottomRef={(ref) => (jumpToBottomRef = ref)}
               />
+
+              <CompositionInfo channel={props.channel} />
 
               <MessageComposition
                 channel={props.channel}

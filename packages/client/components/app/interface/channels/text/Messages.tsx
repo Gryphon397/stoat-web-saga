@@ -65,11 +65,6 @@ interface Props {
   pendingMessages?: (props: { tail: boolean; ids: string[] }) => JSX.Element;
 
   /**
-   * Display typing indicator instead of padding
-   */
-  typingIndicator?: JSX.Element;
-
-  /**
    * Highlighted message id
    */
   highlightedMessageId: Accessor<string | undefined>;
@@ -962,7 +957,6 @@ export function Messages(props: Props) {
                   tail: pendingMessageIsTrailing(),
                   ids: sentMessageIdempotency(),
                 })}
-                {props.typingIndicator ?? <Padding />}
               </Show>
             </div>
           </div>
@@ -990,15 +984,6 @@ const AnchorToEnd = styled("div", {
       position: "absolute",
       bottom: "var(--gap-md)",
     },
-  },
-});
-
-/**
- * Container padding
- */
-const Padding = styled("div", {
-  base: {
-    height: "24px",
   },
 });
 

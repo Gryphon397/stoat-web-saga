@@ -6,6 +6,7 @@ import { i18n } from "@lingui/core";
 import { type LocaleOptions, Language, Languages } from "./Languages";
 import { messages as en } from "./catalogs/en/messages";
 import { initTime, loadTimeLocale } from "./dayjs";
+import { updateDurationLocale } from "./durations";
 
 export function I18nProvider(props: { children: JSX.Element }) {
   return <LinguiProvider i18n={i18n}>{props.children}</LinguiProvider>;
@@ -33,6 +34,7 @@ export async function loadAndSwitchLocale(
     i18n.activate(key);
 
     loadTimeLocale(Languages[key], localeOptions);
+    updateDurationLocale(key);
   }
 }
 
@@ -70,6 +72,7 @@ export function initI18n() {
   i18n.activate("en");
 
   initTime();
+  updateDurationLocale(Language.ENGLISH);
 }
 
 initI18n();
