@@ -1,5 +1,5 @@
-import { createFormControl, createFormGroup } from "solid-forms";
-import { Show, createEffect, createSignal, on } from "solid-js";
+import { createFormControl, createFormGroup, IFormGroup } from "solid-forms";
+import { createEffect, createSignal, JSX, on, Show } from "solid-js";
 
 import { Trans, useLingui } from "@lingui-solid/solid/macro";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
@@ -20,8 +20,17 @@ import MdBadge from "@material-design-icons/svg/filled/badge.svg?component-solid
 
 import { useSettingsNavigation } from "../../Settings";
 
+type AttachedControl<T> = {
+  name: string;
+  value: T;
+};
+
 interface Props {
   user: User;
+  attach?: AttachedControl<unknown>[];
+  onSubmit?: (g: IFormGroup) => void;
+  onReset?: (g: IFormGroup) => void;
+  children?: (g: IFormGroup) => JSX.Element;
 }
 
 export function UserProfileEditor(props: Props) {
@@ -47,6 +56,15 @@ export function UserProfileEditor(props: Props) {
     ),
     banner: createFormControl<string | File[] | null>(null),
     bio: createFormControl(""),
+    ...(props.attach
+      ? props.attach.reduce(
+          (attached, toAttach) => ({
+            [toAttach.name]: createFormControl(toAttach.value),
+            ...attached,
+          }),
+          {},
+        )
+      : {}),
   });
   /* eslint-enable solid/reactivity */
 
@@ -88,6 +106,10 @@ export function UserProfileEditor(props: Props) {
       );
       editGroup.controls.bio.setValue(profile.data.content || "");
       setInitialBio([profile.data.content || ""]);
+    }
+
+    if (props.onReset) {
+      props.onReset(editGroup);
     }
   }
 
@@ -160,6 +182,10 @@ export function UserProfileEditor(props: Props) {
     await queryClient.invalidateQueries({
       queryKey: ["profile", props.user.id],
     });
+
+    if (props.onSubmit) {
+      props.onSubmit(editGroup);
+    }
   }
 
   /**
@@ -218,7 +244,6 @@ export function UserProfileEditor(props: Props) {
             <Trans>Want to change username?</Trans>
           </CategoryButton>
         </Show>
-
         <Text class="label">
           <Trans>Profile Bio</Trans>
         </Text>
@@ -227,6 +252,7 @@ export function UserProfileEditor(props: Props) {
           control={editGroup.controls.bio}
           placeholder={t`Something cool about me...`}
         />
+        {props.children?.(editGroup)}
 
         <Row>
           <Form2.Reset group={editGroup} onReset={onReset} />
