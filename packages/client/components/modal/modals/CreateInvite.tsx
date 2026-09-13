@@ -29,6 +29,17 @@ const Invite = styled("div", {
 });
 
 /**
+ * Get absolute link from invite id
+ *
+ * Upstream takes an Instance and calls inst.href(); we have not adopted the
+ * Instance context, so this derives the origin from the current location.
+ */
+export const getInviteLink = (id: string) =>
+  CONFIGURATION.IS_STOAT
+    ? `https://stt.gg/${id}`
+    : `${window.location.protocol}//${window.location.host}/invite/${id}`;
+
+/**
  * Modal to create a new invite
  */
 export function CreateInviteModal(
@@ -41,13 +52,7 @@ export function CreateInviteModal(
     mutationFn: () =>
       props.channel
         .createInvite()
-        .then(({ _id }) =>
-          setLink(
-            CONFIGURATION.IS_STOAT
-              ? `https://stt.gg/${_id}`
-              : `${window.location.protocol}//${window.location.host}/invite/${_id}`,
-          ),
-        ),
+        .then(({ _id }) => setLink(getInviteLink(_id))),
     onError: showError,
   }));
 
