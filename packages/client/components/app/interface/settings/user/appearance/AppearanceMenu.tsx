@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createSignal } from "solid-js";
+import { createSignal, For, Match, Show, Switch } from "solid-js";
 
 import { Trans } from "@lingui-solid/solid/macro";
 import { css } from "styled-system/css";
@@ -26,8 +26,10 @@ import {
 } from "@revolt/ui";
 import {
   FONT_KEYS,
+  FONTS,
   Fonts,
   MONOSPACE_FONT_KEYS,
+  MONOSPACE_FONTS,
   MonospaceFonts,
 } from "@revolt/ui/themes/fonts";
 
@@ -67,6 +69,26 @@ export function AppearanceMenu() {
   const user = useUser();
   const state = useState();
   const [pickerRef, setPickerRef] = createSignal<HTMLDivElement>();
+
+  // Font previews in the dropdowns only render in their own font once that
+  // font's CSS has been loaded. Upstream hangs this off FloatingSelect's
+  // onOpened; our dropdowns are still mdui-select, which never re-emits the
+  // inner dropdown's open event, so fall back to first interaction instead.
+  let fontsLoaded = false;
+  let monoFontsLoaded = false;
+
+  function loadFonts() {
+    if (fontsLoaded) return;
+    fontsLoaded = true;
+    for (const f in FONTS) FONTS[f as Fonts].load();
+  }
+
+  function loadMonoFonts() {
+    if (monoFontsLoaded) return;
+    monoFontsLoaded = true;
+    for (const f in MONOSPACE_FONTS)
+      MONOSPACE_FONTS[f as MonospaceFonts].load();
+  }
 
   return (
     <Column gap="lg">
@@ -413,9 +435,15 @@ export function AppearanceMenu() {
         onChange={(e) =>
           state.theme.setInterfaceFont(e.currentTarget.value as Fonts)
         }
+        onClick={loadFonts}
+        onFocus={loadFonts}
       >
         <For each={FONT_KEYS}>
-          {(key) => <MenuItem value={key}>{key}</MenuItem>}
+          {(key) => (
+            <MenuItem value={key} style={{ "font-family": key }}>
+              {key}
+            </MenuItem>
+          )}
         </For>
       </TextField.Select>
 
@@ -428,9 +456,15 @@ export function AppearanceMenu() {
         onChange={(e) =>
           state.theme.setMonospaceFont(e.currentTarget.value as MonospaceFonts)
         }
+        onClick={loadMonoFonts}
+        onFocus={loadMonoFonts}
       >
         <For each={MONOSPACE_FONT_KEYS}>
-          {(key) => <MenuItem value={key}>{key}</MenuItem>}
+          {(key) => (
+            <MenuItem value={key} style={{ "font-family": key }}>
+              {key}
+            </MenuItem>
+          )}
         </For>
       </TextField.Select>
 
