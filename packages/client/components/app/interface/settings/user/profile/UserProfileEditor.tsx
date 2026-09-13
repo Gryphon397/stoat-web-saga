@@ -162,6 +162,20 @@ export function UserProfileEditor(props: Props) {
     });
   }
 
+  /**
+   * Autumn upload limit for a given tag.
+   *
+   * `features.limits` is typed as required but self-hosted 0.11.x backends do
+   * not send it, so the whole chain has to be optional (same as Composition).
+   */
+  function uploadLimit(tag: string) {
+    return (
+      client().configuration?.features.limits?.default?.file_upload_size_limits?.[
+        tag
+      ] ?? CONFIGURATION.MAX_FILE_SIZE
+    );
+  }
+
   const submit = Form2.useSubmitHandler(editGroup, onSubmit, onReset);
 
   return (
@@ -172,6 +186,7 @@ export function UserProfileEditor(props: Props) {
           accept="image/*"
           label={t`Avatar`}
           imageJustify={false}
+          maxSize={uploadLimit("avatars")}
         />
         <Form2.FileInput
           control={editGroup.controls.banner}
@@ -180,6 +195,7 @@ export function UserProfileEditor(props: Props) {
           imageAspect="232/100"
           imageRounded={false}
           imageJustify={false}
+          maxSize={uploadLimit("backgrounds")}
         />
         <Form2.TextField
           minlength={2}
