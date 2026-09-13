@@ -25,6 +25,8 @@ import MdMicOff from "@material-design-icons/svg/outlined/mic_off.svg?component-
 import MdPersonAddAlt from "@material-design-icons/svg/outlined/person_add_alt.svg?component-solid";
 import MdPersonRemove from "@material-design-icons/svg/outlined/person_remove.svg?component-solid";
 import MdReport from "@material-design-icons/svg/outlined/report.svg?component-solid";
+import MdTimer from "@material-design-icons/svg/outlined/timer.svg?component-solid";
+import MdTimerOff from "@material-design-icons/svg/outlined/timer_off.svg?component-solid";
 
 import MdChecked from "@material-symbols/svg-400/outlined/check_box.svg?component-solid";
 import MdUnchecked from "@material-symbols/svg-400/outlined/check_box_outline_blank.svg?component-solid";
@@ -85,6 +87,13 @@ export function UserContextMenu(props: {
   }
 
   /**
+   * Whether the member is in timeout
+   */
+  function isInTimeout(member: ServerMember): boolean {
+    return !!member.timeout && member.timeout.getTime() > Date.now();
+  }
+
+  /**
    * Whether the user can be removed from the current group
    */
   function canRemoveMemberFromGroup() {
@@ -133,6 +142,26 @@ export function UserContextMenu(props: {
   function editRoles() {
     openModal({
       type: "user_profile_roles",
+      member: props.member!,
+    });
+  }
+
+  /**
+   * Timeout the member
+   */
+  function timeoutMember() {
+    openModal({
+      type: "timeout_member",
+      member: props.member!,
+    });
+  }
+
+  /**
+   * Remove timeout from the member
+   */
+  function removeTimeout() {
+    openModal({
+      type: "remove_timeout",
       member: props.member!,
     });
   }
@@ -211,6 +240,17 @@ export function UserContextMenu(props: {
    */
   function copyId() {
     navigator.clipboard.writeText(props.user.id);
+  }
+
+  /**
+   * Whether the user can timeout this member
+   */
+  function canTimeout() {
+    return (
+      !props.user.self &&
+      props.member?.server?.havePermission("TimeoutMembers") &&
+      props.member.inferiorTo(props.member.server.member!)
+    );
   }
 
   return (
@@ -320,7 +360,20 @@ export function UserContextMenu(props: {
             <Trans>Edit roles</Trans>
           </ContextMenuButton>
         </Show>
-        {/** TODO: #287 timeout users */}
+        <Show when={canTimeout() && !isInTimeout(props.member!)}>
+          <ContextMenuButton icon={MdTimer} onClick={timeoutMember} destructive>
+            <Trans>Timeout member</Trans>
+          </ContextMenuButton>
+        </Show>
+        <Show when={canTimeout() && isInTimeout(props.member!)}>
+          <ContextMenuButton
+            icon={MdTimerOff}
+            onClick={removeTimeout}
+            destructive
+          >
+            <Trans>Remove timeout</Trans>
+          </ContextMenuButton>
+        </Show>
         <Show
           when={
             !props.user.self &&

@@ -332,4 +332,12 @@ export type Modals =
       type: "edit_category";
       server: Server;
       category: CategoryData;
+    }
+  | {
+      type: "timeout_member";
+      member: ServerMember;
+    }
+  | {
+      type: "remove_timeout";
+      member: ServerMember;
     };

@@ -1,4 +1,12 @@
-import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createMemo,
+  createSignal,
+  onMount,
+} from "solid-js";
 
 import { useLingui } from "@lingui-solid/solid/macro";
 import { Message as MessageInterface, WebsiteEmbed } from "stoat.js";
@@ -31,6 +39,7 @@ import {
   floatingUserMenusFromMessage,
 } from "../../../menus/UserContextMenu";
 
+import { createIsTimedOut } from "@revolt/common/lib/createIsTimedOut";
 import { EditMessage } from "./EditMessage";
 
 /**
@@ -109,6 +118,15 @@ export function Message(props: Props) {
    * @param emoji Emoji
    */
   const unreact = (emoji: string) => props.message.unreact(emoji);
+
+  const timedOut = createIsTimedOut(() => props.message.member?.timeout);
+
+  const moderationPerms = createMemo(() =>
+    props.message.member?.server?.member?.hasPermission(
+      props.message.member!.server! ?? props.message.channel!,
+      "TimeoutMembers",
+    ),
+  );
 
   return (
     <MessageContainer
@@ -217,6 +235,16 @@ export function Message(props: Props) {
             <Tooltip content={t`Silent`} placement="top">
               <Symbol size={16} fill>
                 notifications_off
+              </Symbol>
+            </Tooltip>
+          </Match>
+          <Match when={timedOut() && moderationPerms()}>
+            <Tooltip
+              content={t`Timed Out until ${props.message.member!.timeout!.toLocaleString()}`}
+              placement="top"
+            >
+              <Symbol size={16} color="var(--md-sys-color-error)">
+                timer_off
               </Symbol>
             </Tooltip>
           </Match>

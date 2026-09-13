@@ -7,6 +7,7 @@ import { styled } from "styled-system/jsx";
 
 import { floatingUserMenus } from "@revolt/app/menus/UserContextMenu";
 import { useClient } from "@revolt/client";
+import { createIsTimedOut } from "@revolt/common/lib/createIsTimedOut";
 import { TextWithEmoji } from "@revolt/markdown";
 import { userInformation } from "@revolt/markdown/users";
 import { useState } from "@revolt/state";
@@ -16,6 +17,7 @@ import {
   MenuButton,
   OverflowingText,
   Row,
+  Symbol,
   Tooltip,
   UserStatus,
   Username,
@@ -362,9 +364,6 @@ const NameStatusStack = styled("div", {
   },
 });
 
-/**
- * Member
- */
 function Member(props: {
   user?: User;
   member?: ServerMember;
@@ -379,9 +378,15 @@ function Member(props: {
   const user = () =>
     userInformation((props.user ?? props.member?.user)!, props.member);
 
-  /**
-   * Get user status
-   */
+  const timedOut = createIsTimedOut(() => props.member?.timeout);
+
+  const moderationPerms = createMemo(() =>
+    props.member?.server?.member?.hasPermission(
+      props.member!.server!,
+      "TimeoutMembers",
+    ),
+  );
+
   const status = () =>
     (props.user ?? props.member?.user)?.statusMessage((s) =>
       s === "Online"
@@ -412,16 +417,22 @@ function Member(props: {
           (props.user ?? props.member?.user)?.online ? "active" : "muted"
         }
         icon={
-          <Avatar
-            src={user().avatar}
-            size={32}
-            holepunch="bottom-right"
-            overlay={
-              <UserStatus.Graphic
-                status={(props.user ?? props.member?.user)?.presence}
-              />
-            }
-          />
+          <div
+            style={{
+              opacity: timedOut() && moderationPerms() ? 0.5 : 1,
+            }}
+          >
+            <Avatar
+              src={user().avatar}
+              size={32}
+              holepunch="bottom-right"
+              overlay={
+                <UserStatus.Graphic
+                  status={(props.user ?? props.member?.user)?.presence}
+                />
+              }
+            />
+          </div>
         }
         style={
           nameplateUrl()
@@ -435,7 +446,17 @@ function Member(props: {
       >
         <NameStatusStack>
           <OverflowingText>
-            <Username username={user().username} colour={user().colour!} />
+            <Row align gap="xs">
+              <Username username={user().username} colour={user().colour!} />
+              <Show when={timedOut() && moderationPerms()}>
+                <Tooltip
+                  content={t`Timed out until ${props.member!.timeout!.toLocaleString()}`}
+                  placement="top"
+                >
+                  <Symbol size={14}>timer_off</Symbol>
+                </Tooltip>
+              </Show>
+            </Row>
           </OverflowingText>
           <Show when={status()}>
             <Tooltip

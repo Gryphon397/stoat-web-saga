@@ -77,6 +77,11 @@ interface Props {
   sendingAllowed: boolean;
 
   /**
+   * Whether the user is currently timed out in this channel/server
+   */
+  timeoutActive?: boolean;
+
+  /**
    * Auto complete config
    */
   autoCompleteSearchSpace?: Accessor<AutoCompleteSearchSpace>;
@@ -188,7 +193,7 @@ export function MessageBox(props: Props) {
     <Parent>
       <Base hasActionsAppend={props.hasActionsAppend}>
         <Switch fallback={props.actionsStart}>
-          <Match when={!props.sendingAllowed}>
+          <Match when={props.timeoutActive || !props.sendingAllowed}>
             <InlineIcon size="wide">
               <Blocked>
                 <BiRegularBlock size={24} />
@@ -213,6 +218,13 @@ export function MessageBox(props: Props) {
             </>
           }
         >
+          <Match when={props.timeoutActive}>
+            <Blocked align>
+              <Trans>
+                You are timed out and can't send messages right now.
+              </Trans>
+            </Blocked>
+          </Match>
           <Match when={!props.sendingAllowed}>
             <Blocked align>
               <Trans>

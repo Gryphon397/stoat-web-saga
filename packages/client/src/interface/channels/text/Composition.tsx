@@ -15,6 +15,7 @@ import { Channel } from "stoat.js";
 
 import { useClient } from "@revolt/client";
 import { CONFIGURATION, debounce } from "@revolt/common";
+import { createIsTimedOut } from "@revolt/common/lib/createIsTimedOut";
 import { Keybind, KeybindAction, createKeybind } from "@revolt/keybinds";
 import { useModals } from "@revolt/modal";
 import { useState } from "@revolt/state";
@@ -23,10 +24,10 @@ import {
   FileCarousel,
   FileDropAnywhereCollector,
   FilePasteCollector,
+  humanFileSize,
   IconButton,
   MessageBox,
   MessageReplyPreview,
-  humanFileSize,
 } from "@revolt/ui";
 import { Symbol } from "@revolt/ui/components/utils/Symbol";
 import { useSearchSpace } from "@revolt/ui/components/utils/autoComplete";
@@ -51,6 +52,10 @@ export function MessageComposition(props: Props) {
   const { t } = useLingui();
   const client = useClient();
   const { openModal } = useModals();
+
+  const isTimedOut = createIsTimedOut(
+    () => props.channel.server?.member?.timeout,
+  );
 
   createKeybind(KeybindAction.CHAT_JUMP_END, () =>
     setNodeReplacement(["_focus"]),
@@ -81,7 +86,10 @@ export function MessageComposition(props: Props) {
     const draftContent = draft()?.content ?? "";
     const draftFiles = draft()?.files ?? [];
 
-    return draftContent.trim().length > 0 || draftFiles.length > 0;
+    return (
+      (draftContent.trim().length > 0 || draftFiles.length > 0) &&
+      !isTimedOut()
+    );
   });
 
   // TEMP
@@ -393,7 +401,10 @@ export function MessageComposition(props: Props) {
               ? t`Message ${props.channel.recipient?.username}`
               : t`Message ${props.channel.name}`
         }
-        sendingAllowed={props.channel.havePermission("SendMessage")}
+        sendingAllowed={
+          props.channel.havePermission("SendMessage") && !isTimedOut()
+        }
+        timeoutActive={isTimedOut()}
         autoCompleteSearchSpace={searchSpace}
         updateDraftSelection={(start, end) =>
           state.draft.setSelection(props.channel.id, start, end)
