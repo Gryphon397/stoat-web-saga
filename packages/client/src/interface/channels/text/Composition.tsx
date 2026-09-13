@@ -214,10 +214,11 @@ export function MessageComposition(props: Props) {
     const rejectedFiles: File[] = [];
     const validFiles: File[] = [];
 
-    const maxSize = client().configured()
-      ? (client().configuration?.features.limits.default.file_upload_size_limits
-          .attachments ?? CONFIGURATION.MAX_FILE_SIZE)
-      : CONFIGURATION.MAX_FILE_SIZE;
+    // `features.limits` is typed as required but self-hosted 0.11.x backends
+    // do not send it, so this has to survive the whole chain being absent.
+    const maxSize =
+      client().configuration?.features.limits?.default?.file_upload_size_limits
+        ?.attachments ?? CONFIGURATION.MAX_FILE_SIZE;
 
     for (const file of files) {
       if (file.size > maxSize) {

@@ -136,50 +136,70 @@ class Lifecycle {
         this.#controller.state.notifications.isChannelMuted(channel),
     });
 
-    // stoat.js 0.15 made Client.configuration readonly — it now expects
-    // initConfig() to populate it from GET /. We keep the baked self-hosted
-    // config so startup does not depend on that request succeeding, and assign
-    // through Object.assign to get past the readonly modifier. Note this leaves
-    // client.configured() false, so consumers gated on it (Composition's
-    // upload-size lookup, FlowCreate's invite_only check) stay on their
-    // fallbacks — same as before the bump.
-    Object.assign(this.client, {
-      configuration: {
-        revolt: String(),
-        app: String(),
-        build: {} as never,
-        features: {
-          autumn: {
-            enabled: true,
-            url: CONFIGURATION.DEFAULT_MEDIA_URL,
-          },
-          january: {
-            enabled: true,
-            url: CONFIGURATION.DEFAULT_PROXY_URL,
-          },
-          captcha: {} as never,
-          email: true,
-          invite_only: false,
-          livekit: {
-            enabled: false,
-            nodes: [],
-          },
-          // Added in stoat-api 0.15; unreachable while configured() is false.
-          limits: {} as never,
-          legal_links: {
-            terms_of_service: String(),
-            privacy_policy: String(),
-            guidelines: String(),
-          },
-        },
-        vapid: String(),
-        ws: CONFIGURATION.DEFAULT_WS_URL,
-      } satisfies API.RevoltConfig,
-    });
+    // Warm the config up as early as we can — the auth screens read
+    // features.email / invite_only before any connect happens, and a cached
+    // login wants it in flight alongside /onboard/hello. Failures are handled
+    // where they matter, in #whenConfigured().
+    this.#loadConfig().catch(() => {});
 
     this.client.events.on("state", this.onState);
     this.client.on("ready", this.onReady);
     this.client.on("policyChanges", this.onPolicyChanges);
+  }
+
+  /**
+   * Fetch the server config, overriding the parts a self-hosted deployment
+   * has to resolve client-side.
+   *
+   * The backend advertises whatever URLs it was configured with; the browser
+   * may need different ones (web-dev proxies autumn through its own origin,
+   * for instance), so CONFIGURATION still wins for those three fields.
+   *
+   * Safe to call repeatedly: stoat.js short-circuits once the config is in,
+   * and returns the in-flight promise while a request is outstanding.
+   */
+  #loadConfig() {
+    return this.client.initConfig((config) => {
+      config.features.autumn.enabled = true;
+      config.features.autumn.url = CONFIGURATION.DEFAULT_MEDIA_URL;
+      config.features.january.enabled = true;
+      config.features.january.url = CONFIGURATION.DEFAULT_PROXY_URL;
+      config.ws = CONFIGURATION.DEFAULT_WS_URL;
+    });
+  }
+
+  /**
+   * Run an action once the server config has loaded.
+   *
+   * Everything that connects has to go through here. `Client.connect()` reads
+   * `configuration.ws` synchronously and silently falls back to the public
+   * stoat.chat events URL when the config has not arrived yet, so firing it
+   * early does not merely race — it connects to the wrong server.
+   *
+   * A failed fetch is reported as a temporary failure, which drops us into the
+   * existing Disconnected backoff and retries the whole thing.
+   * @param action Action to run once configured
+   */
+  #whenConfigured(action: () => void) {
+    const client = this.client;
+
+    this.#loadConfig().then(
+      () => {
+        // dispose() may have swapped the client out while we were waiting
+        if (this.client === client) {
+          action();
+        }
+      },
+      (err) => {
+        console.error("Failed to fetch server configuration:", err);
+
+        if (this.client === client) {
+          this.transition({
+            type: TransitionType.TemporaryFailure,
+          });
+        }
+      },
+    );
   }
 
   #enter(nextState: State) {
@@ -203,14 +223,14 @@ class Lifecycle {
               type: TransitionType.NoUser,
             });
           } else {
-            this.client.connect();
+            this.#whenConfigured(() => this.client.connect());
           }
         });
 
         break;
       case State.Connecting:
       case State.Reconnecting:
-        this.client.connect();
+        this.#whenConfigured(() => this.client.connect());
         break;
       case State.Connected:
         this.#controller.state.auth.markValid();

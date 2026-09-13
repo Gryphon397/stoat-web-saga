@@ -4,7 +4,7 @@ Both submodules here point at upstream repos we do **not** own:
 
 | Submodule | Origin | Pinned base | Local commits |
 |-----------|--------|-------------|---------------|
-| `packages/stoat.js` | `stoatchat/javascript-client-sdk` | `44d45ade` | 1 |
+| `packages/stoat.js` | `stoatchat/javascript-client-sdk` | `44d45ade` | 2 |
 | `packages/solid-livekit-components` | `revoltchat/solid-livekit-components` | `a4f98b78` | 7 |
 
 We carry local fixes in both. Because we can't push to either origin, the

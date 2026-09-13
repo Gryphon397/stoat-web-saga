@@ -1,7 +1,7 @@
 From 989f98fe3e92a5874e488c26b7b452cceee09150 Mon Sep 17 00:00:00 2001
 From: Gryphon397 <jgfillman@gmail.com>
 Date: Tue, 8 Sep 2026 22:39:39 -0400
-Subject: [PATCH] stoat: voice-state ready handling, online propagation,
+Subject: [PATCH 1/2] stoat: voice-state ready handling, online propagation,
  availability status
 
 Fork-local changes to the API client, carried on top of 44d45ade.
@@ -191,6 +191,108 @@ index 868a472f..10dfe818 100644
        if (event.policy_changes?.length) {
          client.emit("policyChanges", event.policy_changes, async () =>
            client.api.post("/policy/acknowledge"),
+-- 
+2.53.0.windows.1
+
+
+From a19ec46ea6ab1dbbc242ff54c2551ecc68473993 Mon Sep 17 00:00:00 2001
+From: Gryphon397 <jgfillman@gmail.com>
+Date: Sat, 12 Sep 2026 23:05:43 -0400
+Subject: [PATCH 2/2] stoat: reset initConfig lock on failure, tolerate missing
+ features.limits
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+initConfig() only cleared #configLock on success, so a single failed GET /
+left a permanently rejected promise in place — every later call re-rejected
+with the original error and the request was never retried.
+
+features.limits is typed as required but self-hosted 0.11.x backends omit it
+entirely, so User.limits threw as soon as configured() flipped true.
+---
+ src/Client.ts       | 17 +++++++++++++++--
+ src/classes/User.ts | 26 +++++++++++++++++---------
+ 2 files changed, 32 insertions(+), 11 deletions(-)
+
+diff --git a/src/Client.ts b/src/Client.ts
+index 74d952ae..54347599 100644
+--- a/src/Client.ts
++++ b/src/Client.ts
+@@ -354,13 +354,26 @@ export class Client extends AsyncEventEmitter<Events> {
+   async initConfig(preConfig?: (config: RevoltConfig) => void): Promise<void> {
+     if (!this.#configLock && !this.configuration) {
+       //Create promise lock to avoid race condition
+-      this.#configLock = (async () => {
++      const lock = (async () => {
+         //@ts-expect-error readonly override
+         this.configuration = await this.api.get("/");
+         preConfig?.(this.configuration);
+         this.#setConfigured(true);
+-        this.#configLock = undefined;
+       })();
++
++      this.#configLock = lock;
++
++      // Release the lock once it settles, including on failure. Clearing it
++      // only on success left a permanently rejected promise here after a single
++      // failed GET /, so every later initConfig() call re-rejected with the
++      // original error and the request was never retried.
++      const release = () => {
++        if (this.#configLock === lock) {
++          this.#configLock = undefined;
++        }
++      };
++
++      lock.then(release, release);
+     }
+     return this.#configLock;
+   }
+diff --git a/src/classes/User.ts b/src/classes/User.ts
+index fa02a090..10271e3d 100644
+--- a/src/classes/User.ts
++++ b/src/classes/User.ts
+@@ -1,5 +1,6 @@
+ import type {
+   User as APIUser,
++  LimitsConfig as APILimitsConfig,
+   UserLimits as APIUserLimits,
+   DataEditUser,
+   Presence,
+@@ -374,17 +375,24 @@ export class User {
+    * Backend enforced limits for a user
+    */
+   get limits(): UserLimits | undefined {
+-    if (!this.#collection.client.configured()) {
++    const client = this.#collection.client;
++    if (!client.configured()) {
+       return;
+     }
+-    if (
+-      this.age <
+-      (this.#collection.client.configuration?.features.limits.global
+-        .new_user_hours ?? 72) *
+-        3600_0000
+-    ) {
+-      return this.#collection.client.configuration?.features.limits.new_user;
++
++    // `features.limits` is typed as required, but only newer backends actually
++    // send it — self-hosted 0.11.x omits the key entirely. Reading straight
++    // through it throws there, so treat it as optional.
++    const limits = client.configuration?.features.limits as
++      | APILimitsConfig
++      | undefined;
++    if (!limits) {
++      return;
++    }
++
++    if (this.age < (limits.global.new_user_hours ?? 72) * 3600_0000) {
++      return limits.new_user;
+     }
+-    return this.#collection.client.configuration?.features.limits.default;
++    return limits.default;
+   }
+ }
 -- 
 2.53.0.windows.1
 
