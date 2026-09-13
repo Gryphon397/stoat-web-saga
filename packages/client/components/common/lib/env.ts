@@ -13,9 +13,19 @@ export default {
    */
   DEFAULT_API_URL,
   /**
-   * Whether this is Stoat
+   * Whether this is the official Stoat instance (stoat.chat), i.e. the one
+   * that owns the stt.gg invite shortener. We are self-hosted, so this is
+   * false for us — the rebrand sweep in 7d98ef0a wrongly pointed it at our
+   * own API URL, which made every invite link render as https://stt.gg/<id>.
    */
-  IS_STOAT: ["https://api.sagarmatha.app"].includes(DEFAULT_API_URL),
+  IS_STOAT: [
+    // historically...
+    "https://api.revolt.chat",
+    "https://beta.revolt.chat/api",
+    "https://revolt.chat/api",
+    // ... and now:
+    "https://stoat.chat/api",
+  ].includes(DEFAULT_API_URL),
   /**
    * What WS server to connect to by default.
    */
